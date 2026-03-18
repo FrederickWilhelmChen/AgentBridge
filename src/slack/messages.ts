@@ -1,21 +1,13 @@
 import type { KnownBlock } from "@slack/types";
 import type { Run, Session } from "../domain/models.js";
 
-function truncate(text: string, maxLength = 1500): string {
-  if (text.length <= maxLength) {
-    return text;
-  }
-
-  return `${text.slice(0, maxLength - 3)}...`;
-}
-
 export function buildExecutionBlocks(args: {
   title: string;
   run: Run;
   session: Session | null;
 }): KnownBlock[] {
   const sessionLabel = args.session ? args.session.sessionId : "run once";
-  const tail = truncate(args.run.outputTail || "(no output)");
+  const tail = args.run.outputTail || "(no output)";
 
   return [
     {
@@ -87,7 +79,7 @@ export function buildStatusBlocks(args: {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*Latest Output*\n\`\`\`${truncate(args.run?.outputTail ?? "(no runs yet)")}\`\`\``
+        text: `*Latest Output*\n\`\`\`${args.run?.outputTail ?? "(no runs yet)"}\`\`\``
       }
     }
   ];

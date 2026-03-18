@@ -9,6 +9,10 @@ export function createSlackApp(
   logger: Logger,
   agentBridgeService: AgentBridgeService
 ) {
+  if (!config.slack) {
+    throw new Error("Slack is not configured");
+  }
+
   const app = new App({
     token: config.slack.botToken,
     signingSecret: config.slack.signingSecret,

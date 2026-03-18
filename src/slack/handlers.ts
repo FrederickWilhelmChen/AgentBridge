@@ -1,5 +1,6 @@
 import type { App } from "@slack/bolt";
 import type { Logger } from "pino";
+import { z } from "zod";
 import type { AppConfig } from "../app/config.js";
 import type { AgentType } from "../domain/enums.js";
 import type { AgentBridgeService } from "../services/agent-bridge-service.js";
@@ -12,6 +13,13 @@ type HandlerContext = {
   config: AppConfig;
   agentBridgeService: AgentBridgeService;
 };
+
+const modalSubmissionSchema = z.object({
+  agentType: z.enum(["claude", "codex"]),
+  action: z.enum(["run_once", "send_persistent", "new_session", "status", "restart_session"]),
+  cwd: z.string().min(1),
+  message: z.string()
+});
 
 export function registerSlackHandlers(app: App, context: HandlerContext) {
   app.shortcut("open_agent_console", async ({ ack, body, client }: any) => {
@@ -47,8 +55,10 @@ export function registerSlackHandlers(app: App, context: HandlerContext) {
           agentType: values.agentType,
           cwd: values.cwd,
           message: values.message,
-          slackChannelId: dmChannelId,
-          slackThreadTs: startMessage.ts
+          platform: "slack",
+          platformChannelId: dmChannelId,
+          platformThreadId: startMessage.ts,
+          platformUserId: body.user.id
         });
 
         await client.chat.update({
@@ -70,8 +80,10 @@ export function registerSlackHandlers(app: App, context: HandlerContext) {
           agentType: values.agentType,
           cwd: values.cwd,
           message: values.message,
-          slackChannelId: dmChannelId,
-          slackThreadTs: startMessage.ts
+          platform: "slack",
+          platformChannelId: dmChannelId,
+          platformThreadId: startMessage.ts,
+          platformUserId: body.user.id
         });
 
         await client.chat.update({
@@ -90,7 +102,9 @@ export function registerSlackHandlers(app: App, context: HandlerContext) {
       if (values.action === "new_session") {
         const session = context.agentBridgeService.createOrResetPersistentSession(
           values.agentType,
-          values.cwd
+          values.cwd,
+          "slack",
+          body.user.id
         );
 
         await client.chat.update({
@@ -105,7 +119,12 @@ export function registerSlackHandlers(app: App, context: HandlerContext) {
       }
 
       if (values.action === "restart_session") {
-        const session = context.agentBridgeService.restartSession(values.agentType, values.cwd);
+        const session = context.agentBridgeService.restartSession(
+          values.agentType,
+          values.cwd,
+          "slack",
+          body.user.id
+        );
         await client.chat.update({
           channel: dmChannelId,
           ts: startMessage.ts,
@@ -118,7 +137,11 @@ export function registerSlackHandlers(app: App, context: HandlerContext) {
       }
 
       if (values.action === "status") {
-        const status = context.agentBridgeService.getSessionStatus(values.agentType);
+        const status = context.agentBridgeService.getSessionStatus(
+          values.agentType,
+          "slack",
+          body.user.id
+        );
         await client.chat.update({
           channel: dmChannelId,
           ts: startMessage.ts,
@@ -165,6 +188,74 @@ export function registerSlackHandlers(app: App, context: HandlerContext) {
       })
     });
   });
+
+  app.message(async ({ message, client, body }: any) => {
+    if (!isDirectMessageEvent(message) || message.user !== context.allowedUserId) {
+      return;
+    }
+
+    const threadTs = message.thread_ts ?? message.ts;
+    const startMessage = await client.chat.postMessage({
+      channel: message.channel,
+      thread_ts: threadTs,
+      text: "Processing your message...",
+      blocks: buildInfoBlocks("Processing your message...")
+    });
+
+    try {
+      const result = await context.agentBridgeService.handleIncomingMessage({
+        platform: "slack",
+        platformUserId: message.user,
+        platformChannelId: message.channel,
+        platformThreadId: threadTs,
+        messageId: message.ts,
+        rawText: (message.text as string | undefined)?.trim() ?? ""
+      });
+
+      if (result.kind === "execution") {
+        await client.chat.update({
+          channel: message.channel,
+          ts: startMessage.ts,
+          text: "AgentBridge response",
+          blocks: buildExecutionBlocks({
+            title: result.title,
+            run: result.run,
+            session: result.session
+          })
+        });
+        return;
+      }
+
+      if (result.kind === "status") {
+        await client.chat.update({
+          channel: message.channel,
+          ts: startMessage.ts,
+          text: "AgentBridge response",
+          blocks: buildStatusBlocks({
+            agentType: result.agentType,
+            session: result.session,
+            run: result.run
+          })
+        });
+        return;
+      }
+
+      await client.chat.update({
+        channel: message.channel,
+        ts: startMessage.ts,
+        text: "AgentBridge response",
+        blocks: buildInfoBlocks(result.text)
+      });
+    } catch (error) {
+      context.logger.error({ error }, "Failed to handle Slack text message");
+      await client.chat.update({
+        channel: message.channel,
+        ts: startMessage.ts,
+        text: "AgentBridge action failed",
+        blocks: buildInfoBlocks(formatErrorMessage(error))
+      });
+    }
+  });
 }
 
 function ensureAllowedUser(userId: string, context: HandlerContext) {
@@ -199,12 +290,12 @@ function parseModalSubmission(values: Record<string, Record<string, any>>): {
   const cwd = cwdBlock.cwd.selected_option.value as string;
   const message = (messageBlock.message.value as string | undefined)?.trim() ?? "";
 
-  return {
+  return modalSubmissionSchema.parse({
     agentType,
     action,
     cwd,
     message
-  };
+  });
 }
 
 async function openDirectMessage(client: any, userId: string): Promise<string> {
@@ -232,4 +323,14 @@ function formatErrorMessage(error: unknown): string {
   }
 
   return "Action failed with an unknown error.";
+}
+
+function isDirectMessageEvent(message: any): boolean {
+  return (
+    message?.type === "message"
+    && message?.channel_type === "im"
+    && typeof message?.text === "string"
+    && !message?.bot_id
+    && !message?.subtype
+  );
 }

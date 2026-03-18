@@ -1,6 +1,8 @@
 import type { AppConfig } from "../app/config.js";
 import type { AgentType } from "../domain/enums.js";
 import type { Run, Session } from "../domain/models.js";
+import { parseIntent } from "../intent/intent-router.js";
+import type { IncomingPlatformMessage, MessageHandlingResult } from "../platform/types.js";
 import { buildResumeProfile, buildRunOnceProfile } from "../runtime/agents.js";
 import { ProcessManager } from "../runtime/process-manager.js";
 import { SessionService } from "./session-service.js";
@@ -21,16 +23,20 @@ export class AgentBridgeService {
     agentType: AgentType;
     cwd: string;
     message: string;
-    slackChannelId: string;
-    slackThreadTs?: string | null;
+    platform?: Run["platform"];
+    platformChannelId: string;
+    platformThreadId?: string | null;
+    platformUserId?: string;
   }): Promise<RunExecutionResult> {
     this.ensureAllowedCwd(params.cwd);
 
     let run = this.sessionService.createRun({
       sessionId: null,
       agentType: params.agentType,
-      slackChannelId: params.slackChannelId,
-      slackThreadTs: params.slackThreadTs ?? null,
+      ...(params.platform ? { platform: params.platform } : {}),
+      platformChannelId: params.platformChannelId,
+      platformThreadId: params.platformThreadId ?? null,
+      platformUserId: params.platformUserId ?? "",
       inputText: params.message
     });
 
@@ -60,12 +66,21 @@ export class AgentBridgeService {
     };
   }
 
-  public createOrResetPersistentSession(agentType: AgentType, cwd: string): Session {
+  public createOrResetPersistentSession(
+    agentType: AgentType,
+    cwd: string,
+    platform: Session["platform"] = "slack",
+    platformUserId = ""
+  ): Session {
     this.ensurePersistentSessionSupport(agentType);
     this.ensureAllowedCwd(cwd);
-    const existing = this.sessionService.getPersistentSessionByAgent(agentType);
+    const existing = this.sessionService.getPersistentSessionByScope(
+      agentType,
+      platform,
+      platformUserId
+    );
     if (!existing) {
-      return this.sessionService.createPersistentSession(agentType, cwd);
+      return this.sessionService.createPersistentSession(agentType, cwd, platform, platformUserId);
     }
 
     return this.sessionService.updateSession({
@@ -82,18 +97,27 @@ export class AgentBridgeService {
     agentType: AgentType;
     cwd: string;
     message: string;
-    slackChannelId: string;
-    slackThreadTs?: string | null;
+    platform?: Run["platform"];
+    platformChannelId: string;
+    platformThreadId?: string | null;
+    platformUserId?: string;
   }): Promise<RunExecutionResult> {
     this.ensurePersistentSessionSupport(params.agentType);
     this.ensureAllowedCwd(params.cwd);
 
-    let session = this.sessionService.getOrCreatePersistentSession(params.agentType, params.cwd);
+    let session = this.sessionService.getOrCreatePersistentSession(
+      params.agentType,
+      params.cwd,
+      params.platform ?? "slack",
+      params.platformUserId ?? ""
+    );
     let run = this.sessionService.createRun({
       sessionId: session.sessionId,
       agentType: params.agentType,
-      slackChannelId: params.slackChannelId,
-      slackThreadTs: params.slackThreadTs ?? null,
+      ...(params.platform ? { platform: params.platform } : {}),
+      platformChannelId: params.platformChannelId,
+      platformThreadId: params.platformThreadId ?? null,
+      platformUserId: params.platformUserId ?? "",
       inputText: params.message
     });
 
@@ -149,8 +173,16 @@ export class AgentBridgeService {
     };
   }
 
-  public getSessionStatus(agentType: AgentType): { session: Session | null; run: Run | null } {
-    const session = this.sessionService.getPersistentSessionByAgent(agentType);
+  public getSessionStatus(
+    agentType: AgentType,
+    platform: Session["platform"] = "slack",
+    platformUserId = ""
+  ): { session: Session | null; run: Run | null } {
+    const session = this.sessionService.getPersistentSessionByScope(
+      agentType,
+      platform,
+      platformUserId
+    );
     if (!session) {
       return { session: null, run: null };
     }
@@ -161,12 +193,150 @@ export class AgentBridgeService {
     };
   }
 
-  public restartSession(agentType: AgentType, cwd: string): Session {
-    return this.createOrResetPersistentSession(agentType, cwd);
+  public restartSession(
+    agentType: AgentType,
+    cwd: string,
+    platform: Session["platform"] = "slack",
+    platformUserId = ""
+  ): Session {
+    return this.createOrResetPersistentSession(agentType, cwd, platform, platformUserId);
   }
 
   public interruptRun(runId: string): boolean {
     return this.processManager.interrupt(runId);
+  }
+
+  public async handleIncomingMessage(
+    message: IncomingPlatformMessage
+  ): Promise<MessageHandlingResult> {
+    const parsed = parseIntent(message.rawText, {
+      allowedCwds: this.config.runtime.allowedCwds
+    });
+    const fallbackAgent = this.config.runtime.defaultAgent;
+
+    if (parsed.kind === "control") {
+      const agentType = parsed.intent.agentType ?? fallbackAgent;
+
+      if (parsed.intent.type === "status") {
+        const status = this.getSessionStatus(agentType, message.platform, message.platformUserId);
+        return {
+          kind: "status",
+          agentType,
+          session: status.session,
+          run: status.run
+        };
+      }
+
+      if (parsed.intent.type === "restart_session") {
+        const existing = this.getSessionStatus(agentType, message.platform, message.platformUserId).session;
+        if (!existing) {
+          return {
+            kind: "info",
+            text: `No persistent session exists for ${agentType}. Use the shortcut to pick a workspace first.`,
+            session: null
+          };
+        }
+
+        const session = this.restartSession(
+          agentType,
+          existing.cwd,
+          message.platform,
+          message.platformUserId
+        );
+
+        return {
+          kind: "info",
+          text: `Persistent session reset.\n*Agent:* ${session.agentType}\n*Session:* ${session.sessionId}\n*cwd:* \`${session.cwd}\``,
+          session
+        };
+      }
+
+      if (parsed.intent.type === "new_session") {
+        const cwd = this.getSessionStatus(agentType, message.platform, message.platformUserId).session?.cwd
+          ?? this.config.runtime.allowedCwds[0]
+          ?? process.cwd();
+        const session = this.createOrResetPersistentSession(
+          agentType,
+          cwd,
+          message.platform,
+          message.platformUserId
+        );
+
+        return {
+          kind: "info",
+          text: `Persistent session ready.\n*Agent:* ${session.agentType}\n*Session:* ${session.sessionId}\n*cwd:* \`${session.cwd}\``,
+          session
+        };
+      }
+
+      if (parsed.intent.type === "set_cwd") {
+        const session = this.createOrResetPersistentSession(
+          agentType,
+          parsed.intent.cwd,
+          message.platform,
+          message.platformUserId
+        );
+
+        return {
+          kind: "info",
+          text: `Persistent session ready.\n*Agent:* ${session.agentType}\n*Session:* ${session.sessionId}\n*cwd:* \`${session.cwd}\``,
+          session
+        };
+      }
+
+      if (parsed.intent.type === "interrupt") {
+        const status = this.getSessionStatus(agentType, message.platform, message.platformUserId);
+        const runId = status.run?.runId ?? status.session?.lastRunId;
+        const interrupted = runId ? this.interruptRun(runId) : false;
+
+        return {
+          kind: "info",
+          text: interrupted ? "Interrupt requested." : "Run is no longer active.",
+          session: status.session
+        };
+      }
+    }
+
+    const preferredAgent = parsed.kind === "ai_prompt"
+      ? parsed.agentType ?? fallbackAgent
+      : fallbackAgent;
+    const status = this.getSessionStatus(preferredAgent, message.platform, message.platformUserId);
+
+    if (status.session) {
+      const result = await this.sendToPersistentSession({
+        agentType: preferredAgent,
+        cwd: status.session.cwd,
+        message: message.rawText,
+        platform: message.platform,
+        platformChannelId: message.platformChannelId,
+        platformThreadId: message.platformThreadId,
+        platformUserId: message.platformUserId
+      });
+
+      return {
+        kind: "execution",
+        title: "Persistent Session Result",
+        run: result.run,
+        session: result.session
+      };
+    }
+
+    const result = await this.runOnce({
+      agentType: preferredAgent,
+      cwd: this.config.runtime.allowedCwds[0] ?? process.cwd(),
+      message: message.rawText,
+      platform: message.platform,
+      platformChannelId: message.platformChannelId,
+      platformThreadId: message.platformThreadId,
+      platformUserId: message.platformUserId
+    });
+
+    return {
+      kind: "execution",
+      title: "Run Once Result",
+      run: result.run,
+      session: result.session
+    };
   }
 
   private ensureAllowedCwd(cwd: string) {

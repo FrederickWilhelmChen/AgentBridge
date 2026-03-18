@@ -5,8 +5,10 @@ type RunRow = {
   run_id: string;
   session_id: string | null;
   agent_type: Run["agentType"];
-  slack_channel_id: string;
-  slack_thread_ts: string | null;
+  platform: Run["platform"];
+  platform_channel_id: string;
+  platform_thread_id: string | null;
+  platform_user_id: string;
   input_text: string;
   status: Run["status"];
   pid: number | null;
@@ -22,8 +24,10 @@ function mapRun(row: RunRow): Run {
     runId: row.run_id,
     sessionId: row.session_id,
     agentType: row.agent_type,
-    slackChannelId: row.slack_channel_id,
-    slackThreadTs: row.slack_thread_ts,
+    platform: row.platform,
+    platformChannelId: row.platform_channel_id,
+    platformThreadId: row.platform_thread_id,
+    platformUserId: row.platform_user_id,
     inputText: row.input_text,
     status: row.status,
     pid: row.pid,
@@ -42,10 +46,10 @@ export class RunStore {
     this.database
       .prepare(`
         INSERT INTO runs (
-          run_id, session_id, agent_type, slack_channel_id, slack_thread_ts, input_text,
+          run_id, session_id, agent_type, platform, platform_channel_id, platform_thread_id, platform_user_id, input_text,
           status, pid, started_at, ended_at, exit_code, output_tail, error_reason
         ) VALUES (
-          @runId, @sessionId, @agentType, @slackChannelId, @slackThreadTs, @inputText,
+          @runId, @sessionId, @agentType, @platform, @platformChannelId, @platformThreadId, @platformUserId, @inputText,
           @status, @pid, @startedAt, @endedAt, @exitCode, @outputTail, @errorReason
         )
       `)
@@ -68,8 +72,10 @@ export class RunStore {
         UPDATE runs
         SET session_id = @sessionId,
             agent_type = @agentType,
-            slack_channel_id = @slackChannelId,
-            slack_thread_ts = @slackThreadTs,
+            platform = @platform,
+            platform_channel_id = @platformChannelId,
+            platform_thread_id = @platformThreadId,
+            platform_user_id = @platformUserId,
             input_text = @inputText,
             status = @status,
             pid = @pid,

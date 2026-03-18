@@ -10,6 +10,15 @@
 
 AgentBridge currently supports Slack as the control interface for AI agents (Claude/Codex). This design adds Lark/Feishu support for Chinese users who prefer the domestic platform.
 
+### 2026-03-19 Implementation Update
+
+- Slack DM text entry is now the primary Slack UX.
+- Slack shortcut/modal remains in place as a fallback path.
+- The implemented intent router is conservative and rule-first: explicit control-like inputs are intercepted, while ordinary prose is sent to AI.
+- Persistent sessions are scoped by `platform + platformUserId + agentType`.
+- Composite intents are explicitly deferred beyond v1.
+- Feishu/Lark inbound delivery should use official long connection for self-hosted local use, not public webhook exposure.
+
 ### Key Decisions
 
 | Decision | Choice | Rationale |
