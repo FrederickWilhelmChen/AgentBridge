@@ -16,6 +16,7 @@ type RunRow = {
   ended_at: string | null;
   exit_code: number | null;
   output_tail: string;
+  raw_output: string;
   error_reason: string | null;
 };
 
@@ -35,6 +36,7 @@ function mapRun(row: RunRow): Run {
     endedAt: row.ended_at,
     exitCode: row.exit_code,
     outputTail: row.output_tail,
+    rawOutput: row.raw_output,
     errorReason: row.error_reason
   };
 }
@@ -47,10 +49,10 @@ export class RunStore {
       .prepare(`
         INSERT INTO runs (
           run_id, session_id, agent_type, platform, platform_channel_id, platform_thread_id, platform_user_id, input_text,
-          status, pid, started_at, ended_at, exit_code, output_tail, error_reason
+          status, pid, started_at, ended_at, exit_code, output_tail, raw_output, error_reason
         ) VALUES (
           @runId, @sessionId, @agentType, @platform, @platformChannelId, @platformThreadId, @platformUserId, @inputText,
-          @status, @pid, @startedAt, @endedAt, @exitCode, @outputTail, @errorReason
+          @status, @pid, @startedAt, @endedAt, @exitCode, @outputTail, @rawOutput, @errorReason
         )
       `)
       .run(run);
@@ -83,6 +85,7 @@ export class RunStore {
             ended_at = @endedAt,
             exit_code = @exitCode,
             output_tail = @outputTail,
+            raw_output = @rawOutput,
             error_reason = @errorReason
         WHERE run_id = @runId
       `)

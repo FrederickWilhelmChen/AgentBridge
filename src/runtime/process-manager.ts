@@ -177,15 +177,28 @@ function parseOutput(
     return parseCodexOutput(output);
   }
 
-  try {
-    const parsed = JSON.parse(output);
+  return parseClaudeOutput(output);
+}
+
+function parseClaudeOutput(output: string): { text: string; providerSessionId: string | null } {
+  const trimmed = output.trim();
+  if (!trimmed) {
     return {
-      text: typeof parsed.result === "string" ? parsed.result.trim() : output.trim(),
+      text: "Claude returned no structured output.",
+      providerSessionId: null
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    const text = extractClaudeDisplayText(parsed);
+    return {
+      text,
       providerSessionId: typeof parsed.session_id === "string" ? parsed.session_id : null
     };
   } catch {
     return {
-      text: output.trim(),
+      text: trimmed,
       providerSessionId: null
     };
   }
@@ -296,6 +309,9 @@ function isNoiseLine(line: string): boolean {
     || line === "---"
     || /^[A-Z]:\\/.test(line)
     || /^".*"\s+in\s+[A-Z]:\\/i.test(line)
+    || /^\/[^\s]+/.test(line)
+    || /^".*"\s+"\/.*"/.test(line)
+    || /^in\s+\/.+\s+succeeded in /i.test(line)
   );
 }
 
@@ -326,9 +342,58 @@ function scoreCandidate(block: string): number {
     score -= 1;
   }
 
+  if (/(^|\n)(\/|".*"\s+"\/)/.test(block)) {
+    score -= 1;
+  }
+
   return score;
 }
 
 export function parseCodexOutputForTest(output: string): { text: string; providerSessionId: string | null } {
   return parseCodexOutput(output);
+}
+
+function extractClaudeDisplayText(parsed: Record<string, unknown>): string {
+  const directCandidates = [
+    parsed.result,
+    parsed.message,
+    parsed.output
+  ];
+
+  for (const candidate of directCandidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  if (Array.isArray(parsed.content)) {
+    const combined = parsed.content
+      .flatMap((item) => {
+        if (typeof item === "string") {
+          return [item.trim()];
+        }
+
+        if (item && typeof item === "object" && "text" in item && typeof item.text === "string") {
+          return [item.text.trim()];
+        }
+
+        return [];
+      })
+      .filter(Boolean)
+      .join("\n\n")
+      .trim();
+
+    if (combined) {
+      return combined;
+    }
+  }
+
+  const subtype = typeof parsed.subtype === "string" ? parsed.subtype : "unknown";
+  const errors = Array.isArray(parsed.errors) ? parsed.errors : [];
+  const errorSummary = errors.length > 0 ? ` errors=${JSON.stringify(errors)}` : "";
+  return `Claude returned no final text result (subtype=${subtype}).${errorSummary}`;
+}
+
+export function parseClaudeOutputForTest(output: string): { text: string; providerSessionId: string | null } {
+  return parseClaudeOutput(output);
 }

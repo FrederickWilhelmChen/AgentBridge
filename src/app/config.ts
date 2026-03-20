@@ -23,12 +23,12 @@ const commonEnvSchema = z.object({
   AGENTBRIDGE_HTTP_PROXY: z.string().optional(),
   AGENTBRIDGE_HTTPS_PROXY: z.string().optional(),
   AGENTBRIDGE_CLAUDE_COMMAND: z.string().min(1).default("claude"),
-  AGENTBRIDGE_CLAUDE_ARGS: z.string().default("-p --output-format json"),
-  AGENTBRIDGE_CLAUDE_RESUME_ARGS: z.string().default("-p --output-format json -r {sessionId}"),
+  AGENTBRIDGE_CLAUDE_ARGS: z.string().default("-p --output-format json --permission-mode bypassPermissions"),
+  AGENTBRIDGE_CLAUDE_RESUME_ARGS: z.string().default("-p --output-format json --permission-mode bypassPermissions -r {sessionId}"),
   AGENTBRIDGE_CLAUDE_OUTPUT_MODE: z.enum(["text", "claude_json"]).default("claude_json"),
   AGENTBRIDGE_CODEX_COMMAND: z.string().min(1).default("node"),
-  AGENTBRIDGE_CODEX_ARGS: z.string().default("node_modules/@openai/codex/bin/codex.js exec --skip-git-repo-check -"),
-  AGENTBRIDGE_CODEX_RESUME_ARGS: z.string().default("node_modules/@openai/codex/bin/codex.js exec resume {sessionId} -"),
+  AGENTBRIDGE_CODEX_ARGS: z.string().default("node_modules/@openai/codex/bin/codex.js exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check -"),
+  AGENTBRIDGE_CODEX_RESUME_ARGS: z.string().default("node_modules/@openai/codex/bin/codex.js exec resume {sessionId} --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check -"),
   AGENTBRIDGE_CODEX_OUTPUT_MODE: z.enum(["text", "claude_json", "codex_text"]).default("codex_text")
 });
 
@@ -48,10 +48,46 @@ const larkEnvSchema = z.object({
 });
 
 function splitArgs(value: string): string[] {
-  return value
-    .split(/\s+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
+  const parts: string[] = [];
+  let current = "";
+  let quote: "\"" | "'" | null = null;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (!char) {
+      continue;
+    }
+
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+
+    if (char === "\"" || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      if (current) {
+        parts.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current) {
+    parts.push(current);
+  }
+
+  return parts;
 }
 
 function resolveAgentArgs(command: string, args: string[]): string[] {

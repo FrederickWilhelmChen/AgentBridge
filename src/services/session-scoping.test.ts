@@ -28,3 +28,26 @@ test("scopes persistent sessions by platform, user, and agent", () => {
     larkUserOne.sessionId
   );
 });
+
+test("finds Slack persistent sessions by thread binding", () => {
+  const database = createDatabase(":memory:");
+  const service = new SessionService(new SessionStore(database), new RunStore(database));
+
+  const session = service.createPersistentSession(
+    "claude",
+    "E:/AgentBridge",
+    "slack",
+    "U1",
+    "D123",
+    "171"
+  );
+
+  assert.equal(
+    service.getPersistentSessionByThread("slack", "U1", "D123", "171")?.sessionId,
+    session.sessionId
+  );
+  assert.equal(
+    service.getPersistentSessionByThread("slack", "U1", "D123", "999"),
+    null
+  );
+});

@@ -14,6 +14,15 @@ function hydrateResumeArgs(args: string[], sessionId: string): string[] {
   return args.map((arg) => arg.replaceAll("{sessionId}", sessionId));
 }
 
+function wrapBridgePrompt(message: string): string {
+  return [
+    "Respond with the complete final answer in this response.",
+    "Do not reply with placeholders like 'let me...' or 'I will...' unless the full answer is included in the same response.",
+    "",
+    message
+  ].join("\n");
+}
+
 export function buildRunOnceProfile(
   config: AppConfig,
   agentType: AgentType,
@@ -26,7 +35,7 @@ export function buildRunOnceProfile(
     command: agent.command,
     args: agent.args,
     cwd,
-    input: message,
+    input: wrapBridgePrompt(message),
     outputMode: agent.outputMode,
     shell: shouldUseShell(agent.command)
   };
@@ -49,7 +58,7 @@ export function buildResumeProfile(
     command: agent.command,
     args: hydrateResumeArgs(agent.resumeArgs, providerSessionId),
     cwd,
-    input: message,
+    input: wrapBridgePrompt(message),
     outputMode: agent.outputMode,
     shell: shouldUseShell(agent.command)
   };

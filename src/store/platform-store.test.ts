@@ -21,6 +21,8 @@ test("persists platform-neutral session and run fields", () => {
     status: "idle",
     providerSessionId: null,
     platform: "slack",
+    platformChannelId: "C123",
+    platformThreadId: "thread-1",
     platformUserId: "U123",
     createdAt: "2026-03-19T10:00:00.000Z",
     lastActiveAt: "2026-03-19T10:00:00.000Z",
@@ -42,6 +44,7 @@ test("persists platform-neutral session and run fields", () => {
     endedAt: null,
     exitCode: null,
     outputTail: "",
+    rawOutput: "",
     errorReason: null
   });
 

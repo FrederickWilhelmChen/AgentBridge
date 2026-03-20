@@ -19,6 +19,7 @@ function createRun(outputTail: string): Run {
     endedAt: "2026-03-19T10:01:00.000Z",
     exitCode: 0,
     outputTail,
+    rawOutput: outputTail,
     errorReason: null
   };
 }
@@ -32,6 +33,8 @@ function createSession(): Session {
     status: "idle",
     providerSessionId: null,
     platform: "slack",
+    platformChannelId: "D123",
+    platformThreadId: "thread-1",
     platformUserId: "U123",
     createdAt: "2026-03-19T10:00:00.000Z",
     lastActiveAt: "2026-03-19T10:00:00.000Z",
@@ -39,8 +42,8 @@ function createSession(): Session {
   };
 }
 
-test("buildExecutionBlocks keeps the full output text", () => {
-  const longOutput = "A".repeat(3000);
+test("buildExecutionBlocks truncates output to Slack-safe mrkdwn length", () => {
+  const longOutput = "A".repeat(4000);
   const blocks = buildExecutionBlocks({
     title: "Run Once Result",
     run: createRun(longOutput),
@@ -49,11 +52,13 @@ test("buildExecutionBlocks keeps the full output text", () => {
 
   const outputSection = blocks[1];
   assert.equal(outputSection?.type, "section");
-  assert.match((outputSection as any).text.text, new RegExp(`\\*Output tail\\*\\n\`\`\`${longOutput}\`\`\``));
+  assert.ok((outputSection as any).text.text.length <= 3000);
+  assert.match((outputSection as any).text.text, /\*Output tail\*/);
+  assert.match((outputSection as any).text.text, /truncated/i);
 });
 
-test("buildStatusBlocks keeps the full latest output text", () => {
-  const longOutput = "B".repeat(3000);
+test("buildStatusBlocks truncates output to Slack-safe mrkdwn length", () => {
+  const longOutput = "B".repeat(4000);
   const blocks = buildStatusBlocks({
     agentType: "codex",
     session: createSession(),
@@ -62,5 +67,19 @@ test("buildStatusBlocks keeps the full latest output text", () => {
 
   const outputSection = blocks[1];
   assert.equal(outputSection?.type, "section");
-  assert.match((outputSection as any).text.text, new RegExp(`\\*Latest Output\\*\\n\`\`\`${longOutput}\`\`\``));
+  assert.ok((outputSection as any).text.text.length <= 3000);
+  assert.match((outputSection as any).text.text, /\*Latest Output\*/);
+  assert.match((outputSection as any).text.text, /truncated/i);
+});
+
+test("buildExecutionBlocks shows cwd when a session exists", () => {
+  const blocks = buildExecutionBlocks({
+    title: "Conversation Started",
+    run: createRun("done"),
+    session: createSession()
+  });
+
+  const summary = blocks[0];
+  assert.equal(summary?.type, "section");
+  assert.match((summary as any).text.text, /\*cwd:\* E:\/AgentBridge/);
 });

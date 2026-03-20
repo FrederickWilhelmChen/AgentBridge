@@ -1,29 +1,57 @@
+import path from "node:path";
 import { loadConfig } from "./config.js";
+import { ConnectionHealthMonitor } from "./connection-health.js";
 import { createLogger } from "./logger.js";
 import { createSlackApp } from "../slack/controller.js";
 import { createLarkController } from "../platform/lark/controller.js";
 import { createDatabase } from "../store/db.js";
 import { SessionStore } from "../store/session-store.js";
 import { RunStore } from "../store/run-store.js";
+import { InboundMessageStore } from "../store/inbound-message-store.js";
 import { SessionService } from "../services/session-service.js";
 import { ProcessManager } from "../runtime/process-manager.js";
+import { ImageCache } from "../runtime/image-cache.js";
 import { AgentBridgeService } from "../services/agent-bridge-service.js";
 
 async function main() {
   const config = loadConfig();
   const logger = createLogger();
+  const healthMonitor = new ConnectionHealthMonitor(logger);
   const database = createDatabase(config.database.path);
 
   const sessionStore = new SessionStore(database);
   const runStore = new RunStore(database);
+  const inboundMessageStore = new InboundMessageStore(database);
 
   const sessionService = new SessionService(sessionStore, runStore);
   const processManager = new ProcessManager(logger, {
     httpProxy: config.runtime.httpProxy,
     httpsProxy: config.runtime.httpsProxy
   });
+  const imageCache = new ImageCache({
+    cacheDir: path.join(path.dirname(config.database.path), ".image-cache")
+  });
   const agentBridgeService = new AgentBridgeService(config, sessionService, processManager);
   const cleanupTasks: Array<() => Promise<void> | void> = [];
+  await imageCache.cleanupExpiredFiles();
+  const imageCleanupTimer = setInterval(async () => {
+    try {
+      const removedCount = await imageCache.cleanupExpiredFiles();
+      if (removedCount > 0) {
+        logger.info({ removedCount }, "Expired cached images removed");
+      }
+    } catch (error) {
+      logger.warn({ error }, "Failed to clean up expired cached images");
+    }
+  }, 60 * 60 * 1000);
+  imageCleanupTimer.unref?.();
+  healthMonitor.start();
+  cleanupTasks.push(() => {
+    healthMonitor.stop();
+  });
+  cleanupTasks.push(() => {
+    clearInterval(imageCleanupTimer);
+  });
 
   logger.info(
     {
@@ -48,7 +76,12 @@ async function main() {
       throw new Error("Slack is enabled but not configured");
     }
 
-    const app = createSlackApp(config, logger, agentBridgeService);
+    const app = createSlackApp(config, logger, agentBridgeService, {
+      imageCache,
+      messageDeduper: inboundMessageStore,
+      onConnected: () => healthMonitor.markConnected("slack"),
+      onEventReceived: () => healthMonitor.markEvent("slack")
+    });
     await app.start();
     cleanupTasks.push(async () => {
       await app.stop();
@@ -57,7 +90,12 @@ async function main() {
   }
 
   if (config.runtime.enabledPlatforms.includes("lark")) {
-    const larkController = createLarkController(config, logger, agentBridgeService);
+    const larkController = createLarkController(config, logger, agentBridgeService, {
+      imageCache,
+      messageDeduper: inboundMessageStore,
+      onConnected: () => healthMonitor.markConnected("lark"),
+      onEventReceived: () => healthMonitor.markEvent("lark")
+    });
     await larkController.start();
     cleanupTasks.push(() => larkController.stop());
   }

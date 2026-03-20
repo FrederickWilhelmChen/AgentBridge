@@ -9,6 +9,8 @@ type SessionRow = {
   status: Session["status"];
   provider_session_id: string | null;
   platform: Session["platform"];
+  platform_channel_id: string;
+  platform_thread_id: string | null;
   platform_user_id: string;
   created_at: string;
   last_active_at: string;
@@ -24,6 +26,8 @@ function mapSession(row: SessionRow): Session {
     status: row.status,
     providerSessionId: row.provider_session_id,
     platform: row.platform,
+    platformChannelId: row.platform_channel_id,
+    platformThreadId: row.platform_thread_id,
     platformUserId: row.platform_user_id,
     createdAt: row.created_at,
     lastActiveAt: row.last_active_at,
@@ -38,9 +42,9 @@ export class SessionStore {
     this.database
       .prepare(`
         INSERT INTO sessions (
-          session_id, agent_type, cwd, mode, status, provider_session_id, platform, platform_user_id, created_at, last_active_at, last_run_id
+          session_id, agent_type, cwd, mode, status, provider_session_id, platform, platform_channel_id, platform_thread_id, platform_user_id, created_at, last_active_at, last_run_id
         ) VALUES (
-          @sessionId, @agentType, @cwd, @mode, @status, @providerSessionId, @platform, @platformUserId, @createdAt, @lastActiveAt, @lastRunId
+          @sessionId, @agentType, @cwd, @mode, @status, @providerSessionId, @platform, @platformChannelId, @platformThreadId, @platformUserId, @createdAt, @lastActiveAt, @lastRunId
         )
       `)
       .run(session);
@@ -84,6 +88,28 @@ export class SessionStore {
     return row ? mapSession(row) : null;
   }
 
+  public findPersistentByThread(
+    platform: Session["platform"],
+    platformUserId: string,
+    platformChannelId: string,
+    platformThreadId: string
+  ): Session | null {
+    const row = this.database
+      .prepare(`
+        SELECT *
+        FROM sessions
+        WHERE platform = ?
+          AND platform_user_id = ?
+          AND platform_channel_id = ?
+          AND platform_thread_id = ?
+          AND mode = 'persistent'
+        LIMIT 1
+      `)
+      .get(platform, platformUserId, platformChannelId, platformThreadId) as SessionRow | undefined;
+
+    return row ? mapSession(row) : null;
+  }
+
   public update(session: Session): Session {
     this.database
       .prepare(`
@@ -92,6 +118,8 @@ export class SessionStore {
             status = @status,
             provider_session_id = @providerSessionId,
             platform = @platform,
+            platform_channel_id = @platformChannelId,
+            platform_thread_id = @platformThreadId,
             platform_user_id = @platformUserId,
             last_active_at = @lastActiveAt,
             last_run_id = @lastRunId

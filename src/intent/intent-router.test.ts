@@ -17,6 +17,14 @@ test("maps an absolute path switch request to set_cwd", () => {
   assert.equal(result.intent.cwd, "E:/AgentBridge");
 });
 
+test("maps a macOS absolute path switch request to set_cwd", () => {
+  const result = parseIntent("switch to /Users/test/AgentBridge");
+
+  assert.equal(result.kind, "control");
+  assert.equal(result.intent.type, "set_cwd");
+  assert.equal(result.intent.cwd, "/Users/test/AgentBridge");
+});
+
 test("falls through to ai prompt for normal task text", () => {
   const result = parseIntent("help me inspect this build failure");
 
@@ -53,6 +61,13 @@ test("maps new session text to a create session control intent", () => {
 
 test("maps interrupt text to an interrupt control intent", () => {
   const result = parseIntent("stop");
+
+  assert.equal(result.kind, "control");
+  assert.equal(result.intent.type, "interrupt");
+});
+
+test("maps interrupt prose to an interrupt control intent", () => {
+  const result = parseIntent("please stop the current run");
 
   assert.equal(result.kind, "control");
   assert.equal(result.intent.type, "interrupt");

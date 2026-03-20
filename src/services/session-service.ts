@@ -14,7 +14,9 @@ export class SessionService {
     agentType: AgentType,
     cwd: string,
     platform: Session["platform"] = "slack",
-    platformUserId = ""
+    platformUserId = "",
+    platformChannelId = "",
+    platformThreadId: string | null = null
   ): Session {
     const now = new Date().toISOString();
     const session: Session = {
@@ -25,6 +27,8 @@ export class SessionService {
       status: "idle",
       providerSessionId: null,
       platform,
+      platformChannelId,
+      platformThreadId,
       platformUserId,
       createdAt: now,
       lastActiveAt: now,
@@ -38,7 +42,9 @@ export class SessionService {
     agentType: AgentType,
     cwd: string,
     platform: Session["platform"] = "slack",
-    platformUserId = ""
+    platformUserId = "",
+    platformChannelId = "",
+    platformThreadId: string | null = null
   ): Session {
     const existing = this.sessionStore.findPersistentByScope(agentType, platform, platformUserId);
     if (existing) {
@@ -53,7 +59,14 @@ export class SessionService {
       return existing;
     }
 
-    return this.createPersistentSession(agentType, cwd, platform, platformUserId);
+    return this.createPersistentSession(
+      agentType,
+      cwd,
+      platform,
+      platformUserId,
+      platformChannelId,
+      platformThreadId
+    );
   }
 
   public createRun(params: {
@@ -81,6 +94,7 @@ export class SessionService {
       endedAt: null,
       exitCode: null,
       outputTail: "",
+      rawOutput: "",
       errorReason: null
     };
 
@@ -97,6 +111,20 @@ export class SessionService {
     platformUserId = ""
   ): Session | null {
     return this.sessionStore.findPersistentByScope(agentType, platform, platformUserId);
+  }
+
+  public getPersistentSessionByThread(
+    platform: Session["platform"],
+    platformUserId: string,
+    platformChannelId: string,
+    platformThreadId: string
+  ): Session | null {
+    return this.sessionStore.findPersistentByThread(
+      platform,
+      platformUserId,
+      platformChannelId,
+      platformThreadId
+    );
   }
 
   public updateSession(session: Session): Session {

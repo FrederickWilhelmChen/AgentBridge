@@ -20,9 +20,10 @@ const STATUS_ALIASES = ["status"];
 const NEW_SESSION_ALIASES = ["new session", "new"];
 const RESTART_ALIASES = ["restart", "reset"];
 const INTERRUPT_ALIASES = ["stop", "interrupt"];
-const CODEx_ALIASES = ["codex"];
+const CODEX_ALIASES = ["codex"];
 const CLAUDE_ALIASES = ["claude"];
 const SET_CWD_HINTS = ["switch to", "change to", "cd ", "切到", "切换到"];
+const ABSOLUTE_CWD_PATTERN = /(?:[A-Za-z]:\/|\/)[^\s"',，。！？]*/;
 
 export function parseIntent(input: string, options: ParseIntentOptions = {}): ParseIntentResult {
   const message = input.trim();
@@ -98,7 +99,7 @@ function compactText(input: string): string {
 }
 
 function extractAgentType(normalized: string): AgentType | undefined {
-  if (CODEx_ALIASES.some((alias) => normalized.includes(alias))) {
+  if (CODEX_ALIASES.some((alias) => normalized.includes(alias))) {
     return "codex";
   }
 
@@ -110,13 +111,13 @@ function extractAgentType(normalized: string): AgentType | undefined {
 }
 
 function extractCwd(input: string): string | undefined {
-  const match = input.match(/[A-Za-z]:\/[^\s"'，。！？]*/);
+  const match = input.match(ABSOLUTE_CWD_PATTERN);
   return match?.[0];
 }
 
 function matchAllowedCwd(compact: string, allowedCwds: string[]): string | undefined {
   return allowedCwds.find((cwd) => {
-    const basename = path.win32.basename(cwd).toLowerCase();
+    const basename = path.basename(cwd).toLowerCase();
     return compact.includes(basename);
   });
 }
@@ -127,7 +128,7 @@ function looksLikeCwdCommand(normalized: string, compact: string, allowedCwds: s
   }
 
   return SET_CWD_HINTS.some((hint) => normalized.includes(hint))
-    || allowedCwds.some((cwd) => compact.includes(path.win32.basename(cwd).toLowerCase()));
+    || allowedCwds.some((cwd) => compact.includes(path.basename(cwd).toLowerCase()));
 }
 
 function isStatusCommand(normalized: string): boolean {
@@ -143,5 +144,5 @@ function isRestartCommand(normalized: string): boolean {
 }
 
 function isInterruptCommand(normalized: string): boolean {
-  return INTERRUPT_ALIASES.includes(normalized);
+  return INTERRUPT_ALIASES.some((alias) => normalized === alias || normalized.includes(alias));
 }

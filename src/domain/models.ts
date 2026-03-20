@@ -8,6 +8,8 @@ export type Session = {
   status: SessionStatus;
   providerSessionId: string | null;
   platform: "slack" | "lark";
+  platformChannelId: string;
+  platformThreadId: string | null;
   platformUserId: string;
   createdAt: string;
   lastActiveAt: string;
@@ -29,5 +31,6 @@ export type Run = {
   endedAt: string | null;
   exitCode: number | null;
   outputTail: string;
+  rawOutput: string;
   errorReason: string | null;
 };

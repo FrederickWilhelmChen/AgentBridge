@@ -57,6 +57,7 @@ export class AgentBridgeService {
       endedAt: new Date().toISOString(),
       exitCode: result.exitCode,
       outputTail: result.parsedOutput,
+      rawOutput: result.output,
       errorReason: result.errorReason
     });
 
@@ -70,17 +71,33 @@ export class AgentBridgeService {
     agentType: AgentType,
     cwd: string,
     platform: Session["platform"] = "slack",
-    platformUserId = ""
+    platformUserId = "",
+    platformChannelId = "",
+    platformThreadId: string | null = null
   ): Session {
     this.ensurePersistentSessionSupport(agentType);
     this.ensureAllowedCwd(cwd);
-    const existing = this.sessionService.getPersistentSessionByScope(
-      agentType,
-      platform,
-      platformUserId
-    );
-    if (!existing) {
-      return this.sessionService.createPersistentSession(agentType, cwd, platform, platformUserId);
+    const existing = platformThreadId
+      ? this.sessionService.getPersistentSessionByThread(
+          platform,
+          platformUserId,
+          platformChannelId,
+          platformThreadId
+        )
+      : this.sessionService.getPersistentSessionByScope(
+          agentType,
+          platform,
+          platformUserId
+        );
+    if (!existing || existing.agentType !== agentType) {
+      return this.sessionService.createPersistentSession(
+        agentType,
+        cwd,
+        platform,
+        platformUserId,
+        platformChannelId,
+        platformThreadId
+      );
     }
 
     return this.sessionService.updateSession({
@@ -105,12 +122,27 @@ export class AgentBridgeService {
     this.ensurePersistentSessionSupport(params.agentType);
     this.ensureAllowedCwd(params.cwd);
 
-    let session = this.sessionService.getOrCreatePersistentSession(
-      params.agentType,
-      params.cwd,
-      params.platform ?? "slack",
-      params.platformUserId ?? ""
-    );
+    let session = (params.platform && params.platformThreadId)
+      ? this.sessionService.getPersistentSessionByThread(
+          params.platform,
+          params.platformUserId ?? "",
+          params.platformChannelId,
+          params.platformThreadId
+        )
+      : null;
+
+    if (session && session.agentType !== params.agentType) {
+      session = null;
+    }
+
+    if (!session) {
+      session = this.sessionService.getOrCreatePersistentSession(
+        params.agentType,
+        params.cwd,
+        params.platform ?? "slack",
+        params.platformUserId ?? ""
+      );
+    }
     let run = this.sessionService.createRun({
       sessionId: session.sessionId,
       agentType: params.agentType,
@@ -156,6 +188,7 @@ export class AgentBridgeService {
       endedAt: new Date().toISOString(),
       exitCode: result.exitCode,
       outputTail: result.parsedOutput,
+      rawOutput: result.output,
       errorReason: result.errorReason
     });
 
@@ -193,6 +226,20 @@ export class AgentBridgeService {
     };
   }
 
+  public getPersistentSessionByThread(
+    platform: Session["platform"],
+    platformUserId: string,
+    platformChannelId: string,
+    platformThreadId: string
+  ): Session | null {
+    return this.sessionService.getPersistentSessionByThread(
+      platform,
+      platformUserId,
+      platformChannelId,
+      platformThreadId
+    );
+  }
+
   public restartSession(
     agentType: AgentType,
     cwd: string,
@@ -209,6 +256,34 @@ export class AgentBridgeService {
   public async handleIncomingMessage(
     message: IncomingPlatformMessage
   ): Promise<MessageHandlingResult> {
+    if (message.platformThreadId) {
+      const threadSession = this.getPersistentSessionByThread(
+        message.platform,
+        message.platformUserId,
+        message.platformChannelId,
+        message.platformThreadId
+      );
+
+      if (threadSession) {
+        const result = await this.sendToPersistentSession({
+          agentType: threadSession.agentType,
+          cwd: threadSession.cwd,
+          message: buildPromptWithAttachments(message),
+          platform: message.platform,
+          platformChannelId: message.platformChannelId,
+          platformThreadId: message.platformThreadId,
+          platformUserId: message.platformUserId
+        });
+
+        return {
+          kind: "execution",
+          title: "Persistent Session Result",
+          run: result.run,
+          session: result.session
+        };
+      }
+    }
+
     const parsed = parseIntent(message.rawText, {
       allowedCwds: this.config.runtime.allowedCwds
     });
@@ -300,13 +375,14 @@ export class AgentBridgeService {
     const preferredAgent = parsed.kind === "ai_prompt"
       ? parsed.agentType ?? fallbackAgent
       : fallbackAgent;
+    const prompt = buildPromptWithAttachments(message);
     const status = this.getSessionStatus(preferredAgent, message.platform, message.platformUserId);
 
     if (status.session) {
       const result = await this.sendToPersistentSession({
         agentType: preferredAgent,
         cwd: status.session.cwd,
-        message: message.rawText,
+        message: prompt,
         platform: message.platform,
         platformChannelId: message.platformChannelId,
         platformThreadId: message.platformThreadId,
@@ -324,7 +400,7 @@ export class AgentBridgeService {
     const result = await this.runOnce({
       agentType: preferredAgent,
       cwd: this.config.runtime.allowedCwds[0] ?? process.cwd(),
-      message: message.rawText,
+      message: prompt,
       platform: message.platform,
       platformChannelId: message.platformChannelId,
       platformThreadId: message.platformThreadId,
@@ -351,4 +427,31 @@ export class AgentBridgeService {
       throw new Error(`${agentType} persistent sessions are not configured yet`);
     }
   }
+}
+
+function buildPromptWithAttachments(message: IncomingPlatformMessage): string {
+  if (!message.attachments || message.attachments.length === 0) {
+    return message.rawText;
+  }
+
+  const imageLines = message.attachments
+    .filter((attachment) => attachment.kind === "image")
+    .map((attachment, index) => {
+      const parts = [
+        `Image ${index + 1}:`,
+        attachment.name ? `name=${attachment.name}` : null,
+        attachment.mimeType ? `mime=${attachment.mimeType}` : null,
+        attachment.sourceUrl ? `source=${attachment.sourceUrl}` : null,
+        attachment.platformFileId ? `fileId=${attachment.platformFileId}` : null,
+        attachment.localPath ? `localPath=${attachment.localPath}` : null
+      ].filter(Boolean);
+
+      return parts.join(" ");
+    });
+
+  if (imageLines.length === 0) {
+    return message.rawText;
+  }
+
+  return `${message.rawText}\n\nAttached images:\n${imageLines.join("\n")}`;
 }

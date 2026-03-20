@@ -3,6 +3,15 @@ import type { Run, Session } from "../domain/models.js";
 
 export type Platform = "slack" | "lark";
 
+export type IncomingImageAttachment = {
+  kind: "image";
+  name: string | null;
+  mimeType: string | null;
+  sourceUrl: string | null;
+  platformFileId: string | null;
+  localPath: string | null;
+};
+
 export type IncomingPlatformMessage = {
   platform: Platform;
   platformUserId: string;
@@ -10,6 +19,7 @@ export type IncomingPlatformMessage = {
   platformThreadId: string | null;
   messageId: string;
   rawText: string;
+  attachments?: IncomingImageAttachment[];
 };
 
 export type MessageHandlingResult =

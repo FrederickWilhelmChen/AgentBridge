@@ -26,7 +26,11 @@ function createService() {
         }
       }
     },
-    {} as never,
+    {
+      getPersistentSessionByThread() {
+        return null;
+      }
+    } as never,
     {} as never
   );
 
@@ -55,6 +59,7 @@ function createRun(overrides: Partial<Run> = {}): Run {
     endedAt: "2026-03-19T10:01:00.000Z",
     exitCode: 0,
     outputTail: "done",
+    rawOutput: "done",
     errorReason: null,
     ...overrides
   };
@@ -69,6 +74,8 @@ function createSession(overrides: Partial<Session> = {}): Session {
     status: "idle",
     providerSessionId: null,
     platform: "slack",
+    platformChannelId: "D123",
+    platformThreadId: "thread-1",
     platformUserId: "U123",
     createdAt: "2026-03-19T10:00:00.000Z",
     lastActiveAt: "2026-03-19T10:00:00.000Z",
@@ -76,6 +83,40 @@ function createSession(overrides: Partial<Session> = {}): Session {
     ...overrides
   };
 }
+
+test("uses the thread-bound Slack session and ignores model-switch text", async () => {
+  const service = createService();
+  let usedAgentType: string | null = null;
+  let usedCwd: string | null = null;
+
+  (service as any).getPersistentSessionByThread = () =>
+    createSession({
+      agentType: "claude",
+      cwd: "E:/KeynesEngine",
+      platformThreadId: "thread-1"
+    });
+  service.sendToPersistentSession = (async (params) => {
+    usedAgentType = params.agentType;
+    usedCwd = params.cwd;
+    return {
+      run: createRun({ inputText: params.message, agentType: params.agentType }),
+      session: createSession({ agentType: params.agentType, cwd: params.cwd })
+    };
+  }) as typeof service.sendToPersistentSession;
+
+  const result = await service.handleIncomingMessage({
+    platform: "slack",
+    platformUserId: "U123",
+    platformChannelId: "D123",
+    platformThreadId: "thread-1",
+    messageId: "m-thread-1",
+    rawText: "use codex and switch to AgentBridge then fix this bug"
+  });
+
+  assert.equal(result.kind, "execution");
+  assert.equal(usedAgentType, "claude");
+  assert.equal(usedCwd, "E:/KeynesEngine");
+});
 
 test("routes control intents to status lookups", async () => {
   const service = createService();
@@ -215,4 +256,41 @@ test("uses preferred agent type from ai prompts when provided", async () => {
   });
 
   assert.equal(usedAgentType, "claude");
+});
+
+test("appends image attachment context to ai prompts", async () => {
+  const service = createService();
+  let seenMessage: string | null = null;
+
+  service.getSessionStatus = (() => ({ session: null, run: null })) as typeof service.getSessionStatus;
+  service.runOnce = (async (params) => {
+    seenMessage = params.message;
+    return {
+      run: createRun({ inputText: params.message, agentType: params.agentType }),
+      session: null
+    };
+  }) as typeof service.runOnce;
+
+  await service.handleIncomingMessage({
+    platform: "slack",
+    platformUserId: "U123",
+    platformChannelId: "D123",
+    platformThreadId: null,
+    messageId: "m7",
+    rawText: "please inspect this screenshot",
+    attachments: [
+      {
+        kind: "image",
+        name: "error.png",
+        mimeType: "image/png",
+        sourceUrl: "https://files.slack.com/example/error.png",
+        platformFileId: "F123",
+        localPath: "E:/AgentBridge/.image-cache/error.png"
+      }
+    ]
+  });
+
+  assert.match(seenMessage ?? "", /Attached images:/);
+  assert.match(seenMessage ?? "", /error\.png/);
+  assert.match(seenMessage ?? "", /localPath=E:\/AgentBridge\/\.image-cache\/error\.png/);
 });

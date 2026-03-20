@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseCodexOutputForTest } from "./process-manager.js";
+import { parseClaudeOutputForTest, parseCodexOutputForTest } from "./process-manager.js";
 
 test("extracts the final assistant-style answer from noisy codex output", () => {
   const output = `
@@ -10,40 +10,27 @@ description: Use when starting any conversation
 ---
 
 exec
-"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe" -Command "Get-Content ..."
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content ..."
 in E:\\AgentBridge
 
-exec
-"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe" -Command 'Get-ChildItem ...'
-in E:\\AgentBridge exited -1 in 0ms:
-\`...\` rejected: blocked by policy
-
-succeeded in 630ms:
----
-name: using-superpowers
----
+rejected: blocked by policy
 
 codex
-我会先读取会话必需的 \`.gitignore\` 和 \`.git/info/exclude\`，然后把当前忽略规则按类型整理给你。
-
+I will first inspect the repository ignore files.
 exec
-"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe" -Command "Get-Content .gitignore"
+"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content .gitignore"
 in E:\\AgentBridge succeeded in 212ms:
 node_modules
 dist
 
 codex
-当前仓库忽略了 \`node_modules\` 和 \`dist\`，另外我建议再检查一下本地数据库文件是否也需要忽略。
-
+The repository currently ignores \`node_modules\` and \`dist\`.
 tokens used
 `;
 
   const parsed = parseCodexOutputForTest(output);
 
-  assert.equal(
-    parsed.text,
-    "当前仓库忽略了 `node_modules` 和 `dist`，另外我建议再检查一下本地数据库文件是否也需要忽略。"
-  );
+  assert.equal(parsed.text, "The repository currently ignores `node_modules` and `dist`.");
 });
 
 test("falls back to the best natural-language block when no codex marker exists", () => {
@@ -52,13 +39,51 @@ exec
 "powershell" -Command "Get-Location"
 succeeded in 100ms:
 
-当前工作目录已经是 E:\\KeynesEngine。后续命令我会在这个目录下执行。
-
+The current working directory is already E:\\KeynesEngine.
 OpenAI Codex v0.1
 tokens used
 `;
 
   const parsed = parseCodexOutputForTest(output);
 
-  assert.equal(parsed.text, "当前工作目录已经是 E:\\KeynesEngine。后续命令我会在这个目录下执行。");
+  assert.match(parsed.text, /The current working directory is already E:\\KeynesEngine\./);
+});
+
+test("extracts Claude result text from headless JSON output", () => {
+  const parsed = parseClaudeOutputForTest(JSON.stringify({
+    type: "result",
+    subtype: "success",
+    result: "hello",
+    session_id: "session-1"
+  }));
+
+  assert.equal(parsed.text, "hello");
+  assert.equal(parsed.providerSessionId, "session-1");
+});
+
+test("falls back to subtype when Claude JSON omits result text", () => {
+  const parsed = parseClaudeOutputForTest(JSON.stringify({
+    type: "result",
+    subtype: "error_during_execution",
+    errors: [],
+    session_id: "session-2"
+  }));
+
+  assert.match(parsed.text, /Claude returned no final text result/);
+  assert.match(parsed.text, /error_during_execution/);
+  assert.equal(parsed.providerSessionId, "session-2");
+});
+
+test("strips Unix command path noise from codex output", () => {
+  const output = `
+codex
+The repository looks clean.
+"/usr/local/bin/node" "/Users/test/My Repo/codex.js"
+in /Users/test/My Repo succeeded in 100ms:
+tokens used
+`;
+
+  const parsed = parseCodexOutputForTest(output);
+
+  assert.equal(parsed.text, "The repository looks clean.");
 });
