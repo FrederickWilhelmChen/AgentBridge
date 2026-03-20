@@ -7,6 +7,10 @@ export type Session = {
   mode: SessionMode;
   status: SessionStatus;
   providerSessionId: string | null;
+  platform: "slack" | "lark";
+  platformChannelId: string;
+  platformThreadId: string | null;
+  platformUserId: string;
   createdAt: string;
   lastActiveAt: string;
   lastRunId: string | null;
@@ -16,8 +20,10 @@ export type Run = {
   runId: string;
   sessionId: string | null;
   agentType: AgentType;
-  slackChannelId: string;
-  slackThreadTs: string | null;
+  platform: "slack" | "lark";
+  platformChannelId: string;
+  platformThreadId: string | null;
+  platformUserId: string;
   inputText: string;
   status: RunStatus;
   pid: number | null;
@@ -25,5 +31,6 @@ export type Run = {
   endedAt: string | null;
   exitCode: number | null;
   outputTail: string;
+  rawOutput: string;
   errorReason: string | null;
 };

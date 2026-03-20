@@ -12,6 +12,10 @@ export function createDatabase(dbPath: string) {
       mode TEXT NOT NULL,
       status TEXT NOT NULL,
       provider_session_id TEXT,
+      platform TEXT NOT NULL DEFAULT 'slack',
+      platform_channel_id TEXT NOT NULL DEFAULT '',
+      platform_thread_id TEXT,
+      platform_user_id TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       last_active_at TEXT NOT NULL,
       last_run_id TEXT
@@ -21,8 +25,10 @@ export function createDatabase(dbPath: string) {
       run_id TEXT PRIMARY KEY,
       session_id TEXT,
       agent_type TEXT NOT NULL,
-      slack_channel_id TEXT NOT NULL,
-      slack_thread_ts TEXT,
+      platform TEXT NOT NULL DEFAULT 'slack',
+      platform_channel_id TEXT NOT NULL DEFAULT '',
+      platform_thread_id TEXT,
+      platform_user_id TEXT NOT NULL DEFAULT '',
       input_text TEXT NOT NULL,
       status TEXT NOT NULL,
       pid INTEGER,
@@ -30,7 +36,17 @@ export function createDatabase(dbPath: string) {
       ended_at TEXT,
       exit_code INTEGER,
       output_tail TEXT NOT NULL,
+      raw_output TEXT NOT NULL DEFAULT '',
       error_reason TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS inbound_message_receipts (
+      platform TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      completed_at TEXT,
+      PRIMARY KEY (platform, message_id)
     );
   `);
 
@@ -40,6 +56,56 @@ export function createDatabase(dbPath: string) {
 
   if (!sessionColumns.some((column) => column.name === "provider_session_id")) {
     database.exec("ALTER TABLE sessions ADD COLUMN provider_session_id TEXT");
+  }
+
+  if (!sessionColumns.some((column) => column.name === "platform")) {
+    database.exec("ALTER TABLE sessions ADD COLUMN platform TEXT NOT NULL DEFAULT 'slack'");
+  }
+
+  if (!sessionColumns.some((column) => column.name === "platform_user_id")) {
+    database.exec("ALTER TABLE sessions ADD COLUMN platform_user_id TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (!sessionColumns.some((column) => column.name === "platform_channel_id")) {
+    database.exec("ALTER TABLE sessions ADD COLUMN platform_channel_id TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (!sessionColumns.some((column) => column.name === "platform_thread_id")) {
+    database.exec("ALTER TABLE sessions ADD COLUMN platform_thread_id TEXT");
+  }
+
+  const runColumns = database.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>;
+
+  if (!runColumns.some((column) => column.name === "platform")) {
+    database.exec("ALTER TABLE runs ADD COLUMN platform TEXT NOT NULL DEFAULT 'slack'");
+  }
+
+  if (!runColumns.some((column) => column.name === "platform_channel_id")) {
+    database.exec("ALTER TABLE runs ADD COLUMN platform_channel_id TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (!runColumns.some((column) => column.name === "platform_thread_id")) {
+    database.exec("ALTER TABLE runs ADD COLUMN platform_thread_id TEXT");
+  }
+
+  if (!runColumns.some((column) => column.name === "platform_user_id")) {
+    database.exec("ALTER TABLE runs ADD COLUMN platform_user_id TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (!runColumns.some((column) => column.name === "raw_output")) {
+    database.exec("ALTER TABLE runs ADD COLUMN raw_output TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (runColumns.some((column) => column.name === "slack_channel_id")) {
+    database.exec(`
+      UPDATE runs
+      SET platform = COALESCE(NULLIF(platform, ''), 'slack'),
+          platform_channel_id = CASE
+            WHEN platform_channel_id = '' THEN slack_channel_id
+            ELSE platform_channel_id
+          END,
+          platform_thread_id = COALESCE(platform_thread_id, slack_thread_ts)
+    `);
   }
 
   return database;

@@ -1,131 +1,121 @@
 # AgentBridge
 
-AgentBridge is a lightweight Slack bridge for remotely controlling local Claude Code or Codex sessions from mobile.
+AgentBridge 是一个本地消息桥接服务，用来从聊天平台远程驱动本机的 Claude Code 和 Codex 会话。
 
-## Current MVP
+当前实现支持 Slack 与飞书/Lark，使用 SQLite 持久化会话和运行记录，支持轻量级文本意图路由，并且可以把图片附件缓存到本地后传递给本地 agent。
 
-This repository now includes a usable MVP skeleton with:
+## 功能概览
 
-- Slack Bolt app running in Socket Mode
-- Global shortcut modal
-- `Run Once`
-- persistent session creation/reset
-- send-to-persistent-session
-- session status lookup
-- interrupt for active runs
-- SQLite-backed session/run storage
-- configurable Claude/Codex command adapters
-- verified Claude and Codex persistent session support
+- 通过 Slack Bolt Socket Mode 接入 Slack
+- 通过飞书/Lark 官方长连接 SDK 接入飞书/Lark
+- 支持控制命令和普通 AI 请求共用同一个聊天入口
+- 支持持久会话的创建、复用、重置和状态查询
+- 没有持久会话时自动退回到单次执行
+- 支持把图片附件本地缓存后附加到 prompt
+- 使用 SQLite 存储 session、run 和消息去重记录
+- 支持分别配置 Claude 和 Codex 的命令行适配方式
+- Windows 下支持自动探测系统代理
+- 提供 `doctor` 环境诊断命令
 
-## Setup
+## 环境要求
 
-1. Install dependencies:
+- Node.js 20+
+- Windows 是当前主要验证环境
+- 本机可用的 Claude Code CLI 和/或 Codex CLI
+- Slack 和/或飞书/Lark 应用凭据
+- 至少一个允许切换到的工作目录
+
+## 快速启动
+
+1. 安装依赖
 
 ```bash
 npm install
 ```
 
-2. Copy env file and fill values:
+2. 初始化环境变量
 
 ```bash
 copy .env.example .env
 ```
 
-3. Configure Slack app credentials in `.env`:
-
-- `SLACK_BOT_TOKEN`
-- `SLACK_APP_TOKEN`
-- `SLACK_SIGNING_SECRET`
-- `SLACK_ALLOWED_USER_ID`
-
-4. Configure allowed working directories:
+3. 至少填写这组基础配置
 
 ```env
+AGENTBRIDGE_ENABLED_PLATFORMS=slack
 AGENTBRIDGE_ALLOWED_CWDS=E:/your/project,E:/another/project
+AGENTBRIDGE_DEFAULT_AGENT=codex
+SLACK_BOT_TOKEN=xoxb-your-token
+SLACK_APP_TOKEN=xapp-your-token
+SLACK_SIGNING_SECRET=your-signing-secret
+SLACK_ALLOWED_USER_ID=U0123456789
 ```
 
-5. Configure proxy if your network relies on a local system proxy.
+4. 运行环境自检
 
-On this Windows machine, Codex CLI did not automatically inherit the Windows Internet Settings proxy, which caused repeated WebSocket retries before falling back to HTTPS. AgentBridge now auto-detects the Windows proxy from the registry, but you can also pin it explicitly:
-
-```env
-AGENTBRIDGE_HTTP_PROXY=http://127.0.0.1:10088
-AGENTBRIDGE_HTTPS_PROXY=http://127.0.0.1:10088
+```bash
+npm run doctor
 ```
 
-6. Configure agent commands.
-
-Recommended Claude config on this machine:
-
-```env
-AGENTBRIDGE_CLAUDE_COMMAND=E:/nodejs/claude.cmd
-AGENTBRIDGE_CLAUDE_ARGS=-p --output-format json
-AGENTBRIDGE_CLAUDE_RESUME_ARGS=-p --output-format json -r {sessionId}
-AGENTBRIDGE_CLAUDE_OUTPUT_MODE=claude_json
-```
-
-Recommended Codex config for this project:
-
-```env
-AGENTBRIDGE_CODEX_COMMAND=node
-AGENTBRIDGE_CODEX_ARGS=node_modules/@openai/codex/bin/codex.js exec --skip-git-repo-check -
-AGENTBRIDGE_CODEX_RESUME_ARGS=node_modules/@openai/codex/bin/codex.js exec resume {sessionId} -
-AGENTBRIDGE_CODEX_OUTPUT_MODE=codex_text
-```
-
-This avoids the unstable WindowsApps `codex.exe` path and uses the installed `@openai/codex` package directly.
-
-## Run
-
-Development mode:
+5. 启动服务
 
 ```bash
 npm run dev
 ```
 
-Build:
+如果你需要完整安装、配置和平台接入说明，直接看下方文档导航。
+
+## 常用命令
 
 ```bash
+npm run dev
 npm run build
-```
-
-Type-check:
-
-```bash
 npm run check
+npm run start
+npm run doctor
 ```
 
-## Slack App Requirements
+## 聊天侧常见指令
 
-Your Slack app should have:
+- `status`
+- `new session`
+- `restart session`
+- `stop`
+- `interrupt`
+- `set cwd E:/your/project`
+- `use claude inspect this repo`
+- `use codex debug this build failure`
 
-- Socket Mode enabled
-- a global shortcut with callback ID `open_agent_console`
-- bot scopes required for opening views and posting messages
+说明：
 
-At minimum, check these scopes:
+- 如果消息里明确提到 `claude` 或 `codex`，会优先使用对应 agent
+- 如果当前平台用户已经存在持久会话，会优先把消息发到该会话
+- 如果不存在持久会话，会自动退回到单次执行
 
-- `commands`
-- `chat:write`
-- `im:write`
-- `im:history`
+## 文档导航
 
-Depending on your app setup, you may also need:
+- [安装指南](docs/installation.md)
+- [配置说明](docs/configuration.md)
+- [使用说明](docs/usage.md)
+- [Slack 接入](docs/platforms/slack.md)
+- [飞书 / Lark 接入](docs/platforms/lark.md)
+- [排障指南](docs/troubleshooting.md)
 
-- `users:read`
-- `channels:history`
+## 当前限制
 
-## MVP Notes
+- 当前输出是任务完成后一次性返回，还没有流式输出
+- `interrupt` 只能中断当前 AgentBridge 进程启动的任务
+- 意图路由是浅层规则，不支持复杂复合动作编排
+- 当前访问控制更偏单平台单用户模型
+- 中文命令别名只覆盖少量控制命令
 
-- Claude persistent sessions are supported through Claude session resume IDs.
-- Codex persistent sessions are supported through `codex exec` and `codex exec resume`.
-- AgentBridge injects `HTTP_PROXY` and `HTTPS_PROXY` into child processes, and on Windows it auto-detects the system proxy from Internet Settings if those env vars are not already set.
-- Codex output may include transport warnings if the network path is broken; AgentBridge extracts the final answer and session id from that output.
-- Output is returned when the run finishes; streaming updates are not implemented yet.
-- Interrupt works only for runs started by the current AgentBridge process.
+## 开发相关
 
-## Next Steps
+常用源码目录：
 
-- add richer status cards
-- show running output tail while tasks are in progress
-- add App Home and recent session UX
+- `src/app`：启动、配置、日志、诊断
+- `src/slack`：Slack 集成
+- `src/platform/lark`：飞书/Lark 集成
+- `src/services` 和 `src/intent`：消息路由与核心业务逻辑
+- `src/runtime`：进程管理、图片缓存、运行时工具
+- `src/store`：SQLite 存储层

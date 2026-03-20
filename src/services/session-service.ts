@@ -10,7 +10,14 @@ export class SessionService {
     private readonly runStore: RunStore
   ) {}
 
-  public createPersistentSession(agentType: AgentType, cwd: string): Session {
+  public createPersistentSession(
+    agentType: AgentType,
+    cwd: string,
+    platform: Session["platform"] = "slack",
+    platformUserId = "",
+    platformChannelId = "",
+    platformThreadId: string | null = null
+  ): Session {
     const now = new Date().toISOString();
     const session: Session = {
       sessionId: crypto.randomUUID(),
@@ -19,6 +26,10 @@ export class SessionService {
       mode: "persistent",
       status: "idle",
       providerSessionId: null,
+      platform,
+      platformChannelId,
+      platformThreadId,
+      platformUserId,
       createdAt: now,
       lastActiveAt: now,
       lastRunId: null
@@ -27,8 +38,15 @@ export class SessionService {
     return this.sessionStore.create(session);
   }
 
-  public getOrCreatePersistentSession(agentType: AgentType, cwd: string): Session {
-    const existing = this.sessionStore.findPersistentByAgent(agentType);
+  public getOrCreatePersistentSession(
+    agentType: AgentType,
+    cwd: string,
+    platform: Session["platform"] = "slack",
+    platformUserId = "",
+    platformChannelId = "",
+    platformThreadId: string | null = null
+  ): Session {
+    const existing = this.sessionStore.findPersistentByScope(agentType, platform, platformUserId);
     if (existing) {
       if (existing.cwd !== cwd) {
         return this.sessionStore.update({
@@ -41,14 +59,23 @@ export class SessionService {
       return existing;
     }
 
-    return this.createPersistentSession(agentType, cwd);
+    return this.createPersistentSession(
+      agentType,
+      cwd,
+      platform,
+      platformUserId,
+      platformChannelId,
+      platformThreadId
+    );
   }
 
   public createRun(params: {
     sessionId: string | null;
     agentType: AgentType;
-    slackChannelId: string;
-    slackThreadTs?: string | null;
+    platform?: Run["platform"];
+    platformChannelId: string;
+    platformThreadId?: string | null;
+    platformUserId?: string;
     inputText: string;
   }): Run {
     const now = new Date().toISOString();
@@ -56,8 +83,10 @@ export class SessionService {
       runId: crypto.randomUUID(),
       sessionId: params.sessionId,
       agentType: params.agentType,
-      slackChannelId: params.slackChannelId,
-      slackThreadTs: params.slackThreadTs ?? null,
+      platform: params.platform ?? "slack",
+      platformChannelId: params.platformChannelId,
+      platformThreadId: params.platformThreadId ?? null,
+      platformUserId: params.platformUserId ?? "",
       inputText: params.inputText,
       status: "queued",
       pid: null,
@@ -65,6 +94,7 @@ export class SessionService {
       endedAt: null,
       exitCode: null,
       outputTail: "",
+      rawOutput: "",
       errorReason: null
     };
 
@@ -75,8 +105,26 @@ export class SessionService {
     return this.sessionStore.findById(sessionId);
   }
 
-  public getPersistentSessionByAgent(agentType: AgentType): Session | null {
-    return this.sessionStore.findPersistentByAgent(agentType);
+  public getPersistentSessionByScope(
+    agentType: AgentType,
+    platform: Session["platform"] = "slack",
+    platformUserId = ""
+  ): Session | null {
+    return this.sessionStore.findPersistentByScope(agentType, platform, platformUserId);
+  }
+
+  public getPersistentSessionByThread(
+    platform: Session["platform"],
+    platformUserId: string,
+    platformChannelId: string,
+    platformThreadId: string
+  ): Session | null {
+    return this.sessionStore.findPersistentByThread(
+      platform,
+      platformUserId,
+      platformChannelId,
+      platformThreadId
+    );
   }
 
   public updateSession(session: Session): Session {

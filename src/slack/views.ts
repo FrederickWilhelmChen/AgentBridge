@@ -14,7 +14,7 @@ export function buildConsoleModal(args: {
     },
     submit: {
       type: "plain_text",
-      text: "Run"
+      text: "Start"
     },
     close: {
       type: "plain_text",
@@ -52,44 +52,6 @@ export function buildConsoleModal(args: {
       },
       {
         type: "input",
-        block_id: "action_block",
-        label: {
-          type: "plain_text",
-          text: "Action"
-        },
-        element: {
-          type: "static_select",
-          action_id: "action",
-          initial_option: {
-            text: { type: "plain_text", text: "Run Once" },
-            value: "run_once"
-          },
-          options: [
-            {
-              text: { type: "plain_text", text: "Run Once" },
-              value: "run_once"
-            },
-            {
-              text: { type: "plain_text", text: "Send to Persistent Session" },
-              value: "send_persistent"
-            },
-            {
-              text: { type: "plain_text", text: "New Persistent Session" },
-              value: "new_session"
-            },
-            {
-              text: { type: "plain_text", text: "Status" },
-              value: "status"
-            },
-            {
-              text: { type: "plain_text", text: "Restart Session" },
-              value: "restart_session"
-            }
-          ]
-        }
-      },
-      {
-        type: "input",
         block_id: "cwd_block",
         label: {
           type: "plain_text",
@@ -117,10 +79,9 @@ export function buildConsoleModal(args: {
       {
         type: "input",
         block_id: "message_block",
-        optional: true,
         label: {
           type: "plain_text",
-          text: "Message"
+          text: "Opening Message"
         },
         element: {
           type: "plain_text_input",
@@ -128,7 +89,7 @@ export function buildConsoleModal(args: {
           multiline: true,
           placeholder: {
             type: "plain_text",
-            text: "Required for Run Once and Send to Persistent Session"
+            text: "Required. This starts the conversation."
           }
         }
       }

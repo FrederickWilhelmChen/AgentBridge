@@ -1,8 +1,16 @@
 node_modules/
 dist/
 .env
+.idea/
+.image-cache/
+.logs/
+.tmp/
 agentbridge.db
 *.log
 *.db
 *.db-shm
 *.db-wal
+review/
+chatgpt_record.txt
+docs/superpowers/plans/
+docs/superpowers/specs/
