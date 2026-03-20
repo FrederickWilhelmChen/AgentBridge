@@ -1,60 +1,118 @@
-# 安装指南
+﻿# 安装说明 / Installation
 
-本文档说明如何在本地安装并启动 AgentBridge。
+这份文档说明如何在本地安装并启动 AgentBridge。  
+This document explains how to install and start AgentBridge locally.
 
-## 1. 前置要求
+## 推荐安装方式 / Recommended Setup Path
 
-- Node.js 20 或更高版本
-- Windows 是当前主要验证环境
-- 已安装并可调用的 Claude Code CLI 和/或 Codex CLI
-- 至少一个准备授权给 AgentBridge 使用的工作目录
-- 至少一个聊天平台的应用凭据：
+Windows:
+
+```powershell
+.\install.ps1
+```
+
+macOS / Linux:
+
+```bash
+chmod +x ./install.sh
+./install.sh
+```
+
+安装脚本是推荐入口，因为它会：  
+The installer is the recommended entry point because it will:
+
+- 检查 `node` 和 `npm`  
+  Check `node` and `npm`.
+- 执行 `npm install`  
+  Run `npm install`.
+- 从 `.env.example` 生成 `.env`  
+  Create `.env` from `.env.example`.
+- 创建本地运行目录  
+  Create local runtime directories.
+- 询问平台和凭据的基础配置  
+  Ask for the basic platform and credential settings.
+- 运行 `npm run doctor`  
+  Run `npm run doctor`.
+
+## 前置条件 / Prerequisites
+
+- 需要 Node.js 20+  
+  Node.js 20+ is required.
+- 需要本机可用的 Claude Code CLI 和/或 Codex CLI  
+  A working local Claude Code CLI and/or Codex CLI is required.
+- 至少要有一个允许使用的工作目录  
+  You need at least one allowed working directory.
+- 至少要接入一个平台应用  
+  You need at least one platform app.
   - Slack
-  - 飞书 / Lark
+  - Feishu / Lark
 
-## 2. 获取代码并安装依赖
+## 手动安装 / Manual Installation
+
+### 1. 安装依赖 / Install Dependencies
 
 ```bash
 npm install
 ```
 
-如果依赖安装失败，优先确认：
+如果安装失败，先检查：  
+If installation fails, first check:
 
-- Node 版本是否过低
-- 本机网络是否需要代理
-- `better-sqlite3` 的原生依赖是否能正常安装
+- Node.js 版本是否过旧  
+  Whether Node.js is too old.
+- 机器是否需要代理  
+  Whether the machine needs a proxy.
+- `better-sqlite3` 是否能在这台机器上正常构建  
+  Whether `better-sqlite3` can build correctly on this machine.
 
-## 3. 初始化环境变量
+### 2. 创建 `.env` / Create `.env`
 
-复制示例文件：
+Windows:
 
-```bash
-copy .env.example .env
+```powershell
+Copy-Item .env.example .env
 ```
 
-最少需要配置：
+macOS / Linux:
+
+```bash
+cp .env.example .env
+```
+
+### 3. 填写必需配置 / Fill Required Settings
+
+最小公共配置包括：  
+The minimum common settings are:
 
 - `AGENTBRIDGE_ENABLED_PLATFORMS`
 - `AGENTBRIDGE_ALLOWED_CWDS`
 - `AGENTBRIDGE_DEFAULT_AGENT`
-- 对应平台的凭据
 
-完整配置解释见 [configuration.md](configuration.md)。
+然后再填写你实际使用的平台凭据。  
+Then fill in the platform-specific credentials you actually use.
 
-## 4. 配置本地 agent CLI
+字段级说明见：  
+Field-by-field details are in:
 
-AgentBridge 不直接内置 Claude 或 Codex，它会调用你本机已有的命令行工具。
+- [configuration.md](configuration.md)
+
+## Agent CLI 配置 / Agent CLI Setup
+
+AgentBridge 不内置 Claude 或 Codex，而是调用你机器上已安装的 CLI。  
+AgentBridge does not embed Claude or Codex. It calls the CLIs already installed on your machine.
 
 ### Claude
 
-默认会读取：
+重点字段：  
+Important fields:
 
 - `AGENTBRIDGE_CLAUDE_COMMAND`
 - `AGENTBRIDGE_CLAUDE_ARGS`
 - `AGENTBRIDGE_CLAUDE_RESUME_ARGS`
 - `AGENTBRIDGE_CLAUDE_OUTPUT_MODE`
 
-如果你在 Windows 上通过自定义路径安装 Claude Code CLI，可以像这样配置：
+示例：  
+Example:
 
 ```env
 AGENTBRIDGE_CLAUDE_COMMAND=E:/nodejs/claude.cmd
@@ -63,9 +121,18 @@ AGENTBRIDGE_CLAUDE_RESUME_ARGS=-p --output-format json --permission-mode bypassP
 AGENTBRIDGE_CLAUDE_OUTPUT_MODE=claude_json
 ```
 
+说明：  
+Notes:
+
+- `AGENTBRIDGE_CLAUDE_COMMAND` 应该指向你真正希望 AgentBridge 使用的 Claude 可执行文件  
+  `AGENTBRIDGE_CLAUDE_COMMAND` should point to the actual Claude executable you want AgentBridge to use.
+- 如果一台机器上有多个 `claude`，建议写绝对路径  
+  If the machine has multiple `claude` binaries, use an absolute path.
+
 ### Codex
 
-默认配置通过本仓库依赖里的 `@openai/codex` 调用 Codex：
+默认配置示例：  
+Default setup example:
 
 ```env
 AGENTBRIDGE_CODEX_COMMAND=node
@@ -74,65 +141,88 @@ AGENTBRIDGE_CODEX_RESUME_ARGS=node_modules/@openai/codex/bin/codex.js exec resum
 AGENTBRIDGE_CODEX_OUTPUT_MODE=codex_text
 ```
 
-这样做的好处是避免依赖 WindowsApps shim。
+说明：  
+Notes:
 
-## 5. 配置网络代理
+- `AGENTBRIDGE_CODEX_COMMAND=node` 在默认配置里是正常的  
+  `AGENTBRIDGE_CODEX_COMMAND=node` is normal in the default setup.
+- 真正的 Codex 入口在 `AGENTBRIDGE_CODEX_ARGS` 中  
+  The real Codex entry point lives in `AGENTBRIDGE_CODEX_ARGS`.
 
-如果你的环境依赖本地代理，显式设置：
+## 数据库与本地目录 / Database And Local Directories
 
-```env
-AGENTBRIDGE_HTTP_PROXY=http://127.0.0.1:10088
-AGENTBRIDGE_HTTPS_PROXY=http://127.0.0.1:10088
-```
+- `AGENTBRIDGE_DB_PATH` 是文件路径，不需要手动创建数据库文件  
+  `AGENTBRIDGE_DB_PATH` is a file path. You do not need to create the database file manually.
+- AgentBridge 会在首次启动时自动创建 SQLite 数据库  
+  AgentBridge will create the SQLite database automatically on first run.
+- `.logs`、`.image-cache`、`.tmp` 这类本地目录会由安装脚本或运行时自动创建  
+  Local directories such as `.logs`, `.image-cache`, and `.tmp` are created automatically by the installer or runtime.
 
-在 Windows 上，如果没有显式设置，AgentBridge 会尝试从 Internet Settings 自动探测系统代理。
+## 代理 / Proxy
 
-## 6. 运行环境自检
+代理字段是可选的：  
+Proxy fields are optional:
 
-启动前先执行：
+- `AGENTBRIDGE_HTTP_PROXY`
+- `AGENTBRIDGE_HTTPS_PROXY`
+
+如果这台机器可以直接访问 Feishu / Slack / 模型服务，就留空。  
+Leave them empty if the machine can access Feishu / Slack / model providers directly.
+
+只有本地环境必须经过 HTTP(S) 代理时才填写。  
+Only fill them when the local environment must use an HTTP(S) proxy.
+
+## 运行自检 / Run Doctor
+
+启动服务之前先运行：  
+Before starting the service, run:
 
 ```bash
 npm run doctor
 ```
 
-这个命令会输出：
+Doctor 会检查：  
+Doctor checks:
 
-- 数据库路径
-- 允许的工作目录
-- 代理配置
-- Claude 命令是否可达
-- Codex 命令是否可达
+- 数据库路径  
+  Database path.
+- 允许的工作目录  
+  Allowed working directories.
+- 代理状态  
+  Proxy status.
+- Claude 是否可达  
+  Whether Claude is reachable.
+- Codex 是否可达  
+  Whether Codex is reachable.
 
-如果 `doctor` 显示命令不可达，优先修复 CLI 路径和环境变量，再启动服务。
+## 启动服务 / Start The Service
 
-## 7. 启动服务
-
-开发模式：
+开发模式：  
+Development:
 
 ```bash
 npm run dev
 ```
 
-构建：
+生产构建：  
+Production build:
 
 ```bash
 npm run build
-```
-
-运行构建产物：
-
-```bash
 npm run start
 ```
 
-类型检查：
+类型检查：  
+Type check:
 
 ```bash
 npm run check
 ```
 
-## 8. 下一步
+## 下一步文档 / Next Docs
 
-- 平台接入见 [platforms/slack.md](platforms/slack.md) 和 [platforms/lark.md](platforms/lark.md)
-- 使用方式见 [usage.md](usage.md)
-- 排障见 [troubleshooting.md](troubleshooting.md)
+- [configuration.md](configuration.md)
+- [usage.md](usage.md)
+- [platforms/lark.md](platforms/lark.md)
+- [platforms/slack.md](platforms/slack.md)
+- [troubleshooting.md](troubleshooting.md)

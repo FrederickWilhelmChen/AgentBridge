@@ -1,71 +1,151 @@
-# AgentBridge
+﻿# AgentBridge
 
-AgentBridge 是一个本地消息桥接服务，用来从聊天平台远程驱动本机的 Claude Code 和 Codex 会话。
+这是一个把聊天平台和本机 Agent CLI 连接起来的桥接服务。  
+This is a bridge service that connects chat platforms to local agent CLIs.
 
-当前实现支持 Slack 与飞书/Lark，使用 SQLite 持久化会话和运行记录，支持轻量级文本意图路由，并且可以把图片附件缓存到本地后传递给本地 agent。
+你可以在 Feishu / Lark 或 Slack 中驱动本机的 Claude Code、Codex，以及后续可扩展的其他 agent CLI。  
+You can use Feishu / Lark or Slack to drive local Claude Code, Codex, and other agent CLIs that may be added later.
 
-## 功能概览
+## 平台交互方式
+## Platform Interaction Model
 
-- 通过 Slack Bolt Socket Mode 接入 Slack
-- 通过飞书/Lark 官方长连接 SDK 接入飞书/Lark
-- 支持控制命令和普通 AI 请求共用同一个聊天入口
-- 支持持久会话的创建、复用、重置和状态查询
-- 没有持久会话时自动退回到单次执行
-- 支持把图片附件本地缓存后附加到 prompt
-- 使用 SQLite 存储 session、run 和消息去重记录
-- 支持分别配置 Claude 和 Codex 的命令行适配方式
-- Windows 下支持自动探测系统代理
-- 提供 `doctor` 环境诊断命令
+### Feishu / Lark
 
-## 环境要求
+- 推荐使用“话题模式”  
+  Topic mode is the recommended interaction pattern.
+- 先发送一条根消息，例如 `start` 或 `@Bot start`  
+  First send a root message such as `start` or `@Bot start`.
+- 只在初始化阶段选择一次 agent 和工作目录  
+  Agent and working directory are chosen only once during setup.
+- 初始化完成后，后续都在同一个话题里继续发送任务  
+  After setup, keep sending follow-up tasks in the same topic.
+- AgentBridge 会先回复一张处理中共享卡片，完成后再更新同一张卡片  
+  AgentBridge first replies with a processing card, then updates the same card with the final result.
 
-- Node.js 20+
-- Windows 是当前主要验证环境
-- 本机可用的 Claude Code CLI 和/或 Codex CLI
-- Slack 和/或飞书/Lark 应用凭据
-- 至少一个允许切换到的工作目录
+### Slack
 
-## 快速启动
+- 推荐使用“modal-first”模式  
+  Modal-first is the recommended interaction pattern.
+- 通过全局 shortcut 打开新会话  
+  Use the global shortcut to open a new session.
+- 一个 Slack thread 就是一个 session  
+  One Slack thread equals one session.
+- 只在创建 session 时选择 agent 和工作目录  
+  Agent and working directory are chosen only when the session is created.
+- 后续都在这个 thread 里继续，不在同一 thread 里切换 agent 或工作目录  
+  Continue inside the same thread and do not switch agent or working directory in that thread.
 
-1. 安装依赖
+## 快速开始
+## Quick Start
+
+Windows:
+
+```powershell
+.\install.ps1
+```
+
+macOS / Linux:
+
+```bash
+chmod +x ./install.sh
+./install.sh
+```
+
+安装脚本会完成这些事：  
+The installer will do the following:
+
+- 检查 `node` 和 `npm`  
+  Check `node` and `npm`.
+- 执行 `npm install`  
+  Run `npm install`.
+- 按需从 `.env.example` 生成 `.env`  
+  Create `.env` from `.env.example` when needed.
+- 创建本地运行目录  
+  Create local runtime directories.
+- 询问平台、代理、默认 agent、允许的工作目录  
+  Ask for platform, proxy, default agent, and allowed working directories.
+- 继续询问 Slack 或 Feishu 所需配置  
+  Ask for the required Slack or Feishu settings.
+- 运行 `npm run doctor`  
+  Run `npm run doctor`.
+- 可选直接启动 `npm run dev`  
+  Optionally start `npm run dev`.
+
+## 手动安装
+## Manual Setup
+
+1. 安装依赖  
+   Install dependencies.
 
 ```bash
 npm install
 ```
 
-2. 初始化环境变量
+2. 复制配置模板  
+   Copy the config template.
+
+Windows:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+macOS / Linux:
 
 ```bash
-copy .env.example .env
+cp .env.example .env
 ```
 
-3. 至少填写这组基础配置
+3. 填写 `.env`  
+   Fill in `.env`.
+
+Feishu / Lark 示例：  
+Feishu / Lark example:
 
 ```env
-AGENTBRIDGE_ENABLED_PLATFORMS=slack
+AGENTBRIDGE_ENABLED_PLATFORMS=lark
 AGENTBRIDGE_ALLOWED_CWDS=E:/your/project,E:/another/project
-AGENTBRIDGE_DEFAULT_AGENT=codex
-SLACK_BOT_TOKEN=xoxb-your-token
-SLACK_APP_TOKEN=xapp-your-token
-SLACK_SIGNING_SECRET=your-signing-secret
-SLACK_ALLOWED_USER_ID=U0123456789
+
+LARK_APP_ID=cli_xxxxx
+LARK_APP_SECRET=your-app-secret
+LARK_ALLOWED_USER_ID=ou_xxxxx
 ```
 
-4. 运行环境自检
+Slack 所需权限、事件和 shortcut 配置见：  
+For Slack permissions, events, and shortcut setup, see:
+
+- [docs/platforms/slack.md](docs/platforms/slack.md)
+
+4. 运行自检  
+   Run doctor.
 
 ```bash
 npm run doctor
 ```
 
-5. 启动服务
+5. 启动服务  
+   Start the service.
 
 ```bash
 npm run dev
 ```
 
-如果你需要完整安装、配置和平台接入说明，直接看下方文档导航。
+## 重要配置说明
+## Important Configuration Notes
+
+- `AGENTBRIDGE_DB_PATH` 是数据库文件路径，不需要手动创建数据库文件  
+  `AGENTBRIDGE_DB_PATH` is the database file path. You do not need to create the database file manually.
+- `AGENTBRIDGE_HTTP_PROXY` 和 `AGENTBRIDGE_HTTPS_PROXY` 是可选项，只有本机必须走代理时才填写  
+  `AGENTBRIDGE_HTTP_PROXY` and `AGENTBRIDGE_HTTPS_PROXY` are optional. Only fill them if the machine must use a proxy.
+- `AGENTBRIDGE_CLAUDE_COMMAND` 是 Claude 可执行文件路径  
+  `AGENTBRIDGE_CLAUDE_COMMAND` is the Claude executable path.
+- `AGENTBRIDGE_CLAUDE_ARGS`、`AGENTBRIDGE_CLAUDE_RESUME_ARGS`、`AGENTBRIDGE_CODEX_ARGS`、`AGENTBRIDGE_CODEX_RESUME_ARGS` 一般不需要修改，除非你明确在做兼容性调整  
+  `AGENTBRIDGE_CLAUDE_ARGS`, `AGENTBRIDGE_CLAUDE_RESUME_ARGS`, `AGENTBRIDGE_CODEX_ARGS`, and `AGENTBRIDGE_CODEX_RESUME_ARGS` usually do not need to be changed unless you are doing explicit compatibility tuning.
+- `AGENTBRIDGE_CODEX_COMMAND=node` 在默认配置中是正常的，因为真正的 Codex 入口在 `AGENTBRIDGE_CODEX_ARGS`  
+  `AGENTBRIDGE_CODEX_COMMAND=node` is normal in the default setup because the real Codex entry point lives in `AGENTBRIDGE_CODEX_ARGS`.
 
 ## 常用命令
+## Common Commands
 
 ```bash
 npm run dev
@@ -75,47 +155,24 @@ npm run start
 npm run doctor
 ```
 
-## 聊天侧常见指令
+## 文档
+## Documentation
 
-- `status`
-- `new session`
-- `restart session`
-- `stop`
-- `interrupt`
-- `set cwd E:/your/project`
-- `use claude inspect this repo`
-- `use codex debug this build failure`
-
-说明：
-
-- 如果消息里明确提到 `claude` 或 `codex`，会优先使用对应 agent
-- 如果当前平台用户已经存在持久会话，会优先把消息发到该会话
-- 如果不存在持久会话，会自动退回到单次执行
-
-## 文档导航
-
-- [安装指南](docs/installation.md)
-- [配置说明](docs/configuration.md)
-- [使用说明](docs/usage.md)
-- [Slack 接入](docs/platforms/slack.md)
-- [飞书 / Lark 接入](docs/platforms/lark.md)
-- [排障指南](docs/troubleshooting.md)
+- [安装说明 / Installation](docs/installation.md)
+- [配置说明 / Configuration](docs/configuration.md)
+- [使用说明 / Usage](docs/usage.md)
+- [Slack 接入 / Slack Setup](docs/platforms/slack.md)
+- [Feishu / Lark 接入 / Feishu / Lark Setup](docs/platforms/lark.md)
+- [排障说明 / Troubleshooting](docs/troubleshooting.md)
 
 ## 当前限制
+## Current Limitations
 
-- 当前输出是任务完成后一次性返回，还没有流式输出
-- `interrupt` 只能中断当前 AgentBridge 进程启动的任务
-- 意图路由是浅层规则，不支持复杂复合动作编排
-- 当前访问控制更偏单平台单用户模型
-- 中文命令别名只覆盖少量控制命令
-
-## 开发相关
-
-常用源码目录：
-
-- `src/app`：启动、配置、日志、诊断
-- `src/slack`：Slack 集成
-- `src/platform/lark`：飞书/Lark 集成
-- `src/services` 和 `src/intent`：消息路由与核心业务逻辑
-- `src/runtime`：进程管理、图片缓存、运行时工具
-- `src/store`：SQLite 存储层
+- 目前还是“最终结果优先”，还没有真正的流式输出  
+  Output is still final-result-first, not true token streaming.
+- 文本控制目前只保留很少量的中断语义，不再依赖完整意图路由  
+  Text control now keeps only a very small interruption surface and no longer depends on a full intent-routing model.
+- 当前访问控制更偏向单用户本地自托管  
+  Access control is still optimized for single-user local self-hosting.
+- 不同机器上的 Claude / Codex CLI 行为仍可能存在差异  
+  Claude / Codex CLI behavior can still vary across different machines.

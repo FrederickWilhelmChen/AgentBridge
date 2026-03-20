@@ -118,28 +118,6 @@ test("uses the thread-bound Slack session and ignores model-switch text", async 
   assert.equal(usedCwd, "E:/KeynesEngine");
 });
 
-test("routes control intents to status lookups", async () => {
-  const service = createService();
-  let calledWith: unknown[] | null = null;
-
-  service.getSessionStatus = ((agentType, platform, platformUserId) => {
-    calledWith = [agentType, platform, platformUserId];
-    return { session: null, run: null };
-  }) as typeof service.getSessionStatus;
-
-  const result = await service.handleIncomingMessage({
-    platform: "slack",
-    platformUserId: "U123",
-    platformChannelId: "D123",
-    platformThreadId: null,
-    messageId: "m1",
-    rawText: "status"
-  });
-
-  assert.deepEqual(calledWith, ["codex", "slack", "U123"]);
-  assert.equal(result.kind, "status");
-});
-
 test("uses active persistent session when available for ai prompts", async () => {
   const service = createService();
 
@@ -186,26 +164,6 @@ test("falls back to run once when no persistent session exists", async () => {
   assert.equal(result.session, null);
 });
 
-test("creates a persistent session for new session control intents", async () => {
-  const service = createService();
-
-  service.getSessionStatus = (() => ({ session: null, run: null })) as typeof service.getSessionStatus;
-  service.createOrResetPersistentSession = ((agentType, cwd) =>
-    createSession({ agentType, cwd })) as typeof service.createOrResetPersistentSession;
-
-  const result = await service.handleIncomingMessage({
-    platform: "slack",
-    platformUserId: "U123",
-    platformChannelId: "D123",
-    platformThreadId: null,
-    messageId: "m4",
-    rawText: "new codex session"
-  });
-
-  assert.equal(result.kind, "info");
-  assert.match(result.text, /Persistent session ready/);
-});
-
 test("interrupts the latest active run for interrupt control intents", async () => {
   const service = createService();
   let interruptedRunId: string | null = null;
@@ -233,7 +191,7 @@ test("interrupts the latest active run for interrupt control intents", async () 
   assert.match(result.text, /Interrupt requested/);
 });
 
-test("uses preferred agent type from ai prompts when provided", async () => {
+test("uses default agent even when prompt mentions another agent", async () => {
   const service = createService();
   let usedAgentType: string | null = null;
 
@@ -255,7 +213,7 @@ test("uses preferred agent type from ai prompts when provided", async () => {
     rawText: "use claude help me inspect this build failure"
   });
 
-  assert.equal(usedAgentType, "claude");
+  assert.equal(usedAgentType, "codex");
 });
 
 test("appends image attachment context to ai prompts", async () => {

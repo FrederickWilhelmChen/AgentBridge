@@ -36,7 +36,6 @@ type LarkMessageEvent = {
 
 type LarkResult =
   | { kind: "execution"; title: string; run: { outputTail: string; status: string }; session: { sessionId: string } | null }
-  | { kind: "status"; agentType: string; session: { sessionId: string; status: string; cwd: string } | null; run: { outputTail: string } | null }
   | { kind: "info"; text: string; session: unknown };
 
 type PendingThreadSetup =
@@ -435,24 +434,12 @@ function formatLarkResult(result: LarkResult): string {
     return `${result.title}\nAgent session: ${sessionLabel}\nStatus: ${result.run.status}\n\n${result.run.outputTail || "(no output)"}`;
   }
 
-  if (result.kind === "status") {
-    if (!result.session) {
-      return `No persistent session exists for ${result.agentType}.`;
-    }
-
-    return `Persistent Session Status\nAgent: ${result.agentType}\nSession: ${result.session.sessionId}\nState: ${result.session.status}\ncwd: ${result.session.cwd}\n\n${result.run?.outputTail ?? "(no runs yet)"}`;
-  }
-
   return result.text;
 }
 
 function formatLarkResultStatus(result: LarkResult): string {
   if (result.kind === "execution") {
     return result.run.status === "failed" ? "Failed" : "Completed";
-  }
-
-  if (result.kind === "status") {
-    return "Status";
   }
 
   return "Completed";

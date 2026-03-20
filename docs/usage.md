@@ -1,134 +1,205 @@
-# 使用说明
+﻿# 使用说明 / Usage
 
-本文档说明 AgentBridge 启动后如何处理消息、会话和附件。
+这份文档说明 AgentBridge 启动后如何处理消息、会话和附件。  
+This document explains how AgentBridge handles messages, sessions, and attachments after startup.
 
-## 1. 启动服务
+## 1. 启动 / Startup
 
-开发模式：
+开发模式：  
+Development:
 
 ```bash
 npm run dev
 ```
 
-构建并启动：
+生产模式：  
+Production:
 
 ```bash
 npm run build
 npm run start
 ```
 
-启动后，程序会：
+启动后，AgentBridge 会完成这些事：  
+After startup, AgentBridge will:
 
-- 读取 `.env`
-- 校验配置
-- 初始化 SQLite 数据库
-- 初始化图片缓存目录
-- 启动 Slack 和/或飞书 / Lark 控制器
+- 加载 `.env`  
+  Load `.env`.
+- 校验配置  
+  Validate configuration.
+- 初始化 SQLite  
+  Initialize SQLite.
+- 初始化图片缓存和本地运行目录  
+  Initialize the image cache and local runtime directories.
+- 启动 Slack 和/或 Feishu 控制器  
+  Start Slack and/or Feishu controllers.
 
-## 2. 消息如何分类
+## 2. 平台心智模型 / Platform Mental Model
 
-进入 AgentBridge 的消息会被分为两类：
+### Feishu / Lark
 
-- 控制意图
-- 普通 AI 请求
+- 从根消息开始，例如 `start` 或 `@Bot start`  
+  Start from a root message such as `start` or `@Bot start`.
+- 初始化阶段只选择一次 agent 和 cwd  
+  Agent and cwd are selected once during setup.
+- 初始化完成后继续在同一个话题里交流  
+  After setup, continue in the same topic.
+- 这个话题本身就是持续会话入口  
+  The topic itself becomes the ongoing session entry.
+- AgentBridge 会先显示一张进度卡片，再更新结果  
+  AgentBridge first shows a progress card and then updates it with the result.
 
-当前控制意图主要包括：
+### Slack
 
-- `status`
-- `new session`
-- `restart session`
-- `stop`
-- `interrupt`
-- `set cwd <absolute path>`
+- 通过全局 shortcut 打开的 modal 来开始  
+  Start through the global shortcut modal.
+- 一个 Slack thread 就是一个 session  
+  One Slack thread equals one session.
+- thread 内的 `agent` 固定  
+  `agent` is fixed inside the thread.
+- thread 内的 `cwd` 固定  
+  `cwd` is fixed inside the thread.
+- 后续都在同一个 thread 里继续  
+  Follow-up messages continue in the same thread.
 
-如果消息没有命中这些规则，就会作为普通 prompt 转发给 Claude 或 Codex。
+这两个平台的交互模型是故意不完全相同的。  
+These two platform flows are intentionally not identical.
 
-## 3. Agent 选择规则
+## 3. 消息处理 / Message Handling
 
-消息处理时的优先级大致如下：
+进入系统的消息大致分成三类：  
+Incoming messages are roughly handled in three categories:
 
-1. 如果消息文本中明确提到 `codex`，优先用 Codex
-2. 如果消息文本中明确提到 `claude`，优先用 Claude
-3. 否则使用 `AGENTBRIDGE_DEFAULT_AGENT`
+- 平台初始化消息  
+  Platform setup messages.
+- `interrupt` / `stop` 这类中断消息  
+  Interruption messages such as `interrupt` / `stop`.
+- 普通 agent prompt  
+  Regular agent prompts.
 
-示例：
+除了显式初始化流程和中断指令之外，普通文本都会被当作正常 prompt 处理。  
+Outside explicit setup flows and interruption commands, regular text is treated as a normal prompt.
 
-- `use codex debug this build failure`
-- `claude explain this repository`
+## 4. Agent 与工作目录选择 / Agent And CWD Selection
 
-## 4. 持久会话与单次执行
+选择方式取决于平台：  
+Selection depends on the platform flow:
 
-### 持久会话
+- Slack：在创建 thread 的 modal 中选择  
+  Slack: selected in the modal when the thread is created.
+- Feishu / Lark：在话题初始化流程里选择  
+  Feishu / Lark: selected during topic setup.
+- 其他情况下使用 `AGENTBRIDGE_DEFAULT_AGENT` 兜底  
+  Otherwise, `AGENTBRIDGE_DEFAULT_AGENT` is used as fallback.
 
-持久会话用于把同一平台用户的多条消息持续发送到同一个 agent 会话中。
+注意：  
+Important:
 
-当前持久会话按以下维度隔离：
+- Slack 不允许在同一个 thread 里切换 agent  
+  Slack does not expect agent switching inside the same thread.
+- Feishu 初始化是先选 agent，再选 cwd  
+  Feishu setup chooses the agent first, then the cwd.
+- 初始化完成后，两边都不允许在同一会话里切换 agent 或 cwd  
+  After setup, neither platform expects agent or cwd switching inside the same session.
 
-- 平台
-- 平台用户
-- agent 类型
+## 5. 会话模型 / Session Model
 
-典型命令：
+AgentBridge 支持持久 provider session，用于多轮工作。  
+AgentBridge supports persistent provider sessions for multi-turn work.
 
-- `new session`
-- `restart session`
-- `status`
+具体来说：  
+In practice:
 
-### 单次执行
+- Slack 把 session 绑定到 Slack thread  
+  Slack binds the session to the Slack thread.
+- Feishu / Lark 把 session 绑定到话题 / thread 上下文  
+  Feishu / Lark binds the session to the topic/thread context.
 
-如果当前用户没有可复用的持久会话，AgentBridge 会退回到单次执行模式。单次执行完成后，输出一次性返回，不保留对话上下文。
+## 6. 工作目录 / Working Directory
 
-## 5. 工作目录切换
+所有执行都必须落在 `AGENTBRIDGE_ALLOWED_CWDS` 里。  
+All execution must stay inside `AGENTBRIDGE_ALLOWED_CWDS`.
 
-你可以通过消息切换工作目录，例如：
+这意味着：  
+That means:
 
-```text
-set cwd E:/your/project
-```
+- 目标 cwd 必须在白名单内  
+  The target cwd must be whitelisted.
+- 初始化流程只能从已允许目录中选择  
+  Setup flows must choose from known allowed directories.
+- 一旦 session 初始化完成，cwd 在该 session 内保持固定  
+  Once a session is initialized, the cwd stays fixed in that session.
 
-或者在部分情况下通过消息中出现的白名单目录名触发切换。
+## 7. 图片 / Images
 
-限制：
+如果平台消息里包含图片，AgentBridge 会：  
+If a platform message contains images, AgentBridge will:
 
-- 目标路径必须在 `AGENTBRIDGE_ALLOWED_CWDS` 白名单中
-- 非白名单路径会被拒绝
+1. 下载并缓存图片到本地  
+   Download and cache the image locally.
+2. 构建附件元数据  
+   Build attachment metadata.
+3. 把这些元数据和本地路径一并传给 agent prompt 流程  
+   Pass the metadata and local path into the agent prompt flow.
 
-## 6. 图片附件处理
+这样 agent 可以看到：  
+This allows the agent to see:
 
-如果平台消息里包含图片附件，AgentBridge 会：
+- 文件名  
+  File name.
+- MIME 类型  
+  MIME type.
+- 平台文件 ID  
+  Platform file ID.
+- 本地缓存路径  
+  Local cache path.
 
-1. 把图片缓存到本地 `.image-cache`
-2. 生成包含图片元信息和本地路径的补充文本
-3. 把这段补充文本追加到原始 prompt 之后
+## 8. 输出行为 / Output Behavior
 
-这意味着 agent 能看到：
+当前行为如下：  
+Current behavior:
 
-- 图片名
-- MIME 类型
-- 平台文件 ID
-- 原始来源 URL
-- 本地缓存路径
+- 输出是“结果优先”，不是真正的 token 流式输出  
+  Output is result-first, not true token streaming.
+- Feishu / Lark 会先给出可见的进度卡片反馈  
+  Feishu / Lark gives immediate visible feedback through a progress card.
+- Slack 主要在 thread 中展示完成结果  
+  Slack mainly surfaces completed results in-thread.
 
-## 7. 常见使用方式
+## 9. 中断 / Interruption
 
-- `status`
-- `new session`
-- `restart session`
-- `interrupt`
-- `set cwd E:/your/project`
-- `use claude inspect this repo`
-- `use codex review this error log`
+`interrupt` 以及相关控制只会影响当前 AgentBridge 进程自己发起的任务。  
+`interrupt` and related controls only affect work launched by the current AgentBridge process.
 
-## 8. 输出与中断行为
+它们不会控制无关的本地终端或外部会话。  
+They do not control unrelated local terminals or external sessions.
 
-当前实现有几个需要明确知道的点：
+## 10. 实际使用方式 / Practical Usage Patterns
 
-- 输出不是流式的，而是在任务完成后一次性返回
-- `interrupt` 只能中断由当前 AgentBridge 进程发起的活动任务
-- 意图路由是轻量规则，不适合复杂多步骤命令
+Feishu / Lark:
 
-## 9. 相关文档
+1. 发送 `@Bot start`  
+   Send `@Bot start`.
+2. 选择 `claude` 或 `codex`  
+   Choose `claude` or `codex`.
+3. 选择 cwd  
+   Choose cwd.
+4. 然后在同一个话题里继续，不再切换 agent 或 cwd  
+   Continue in the same topic without changing agent or cwd.
 
-- 安装见 [installation.md](installation.md)
-- 配置见 [configuration.md](configuration.md)
-- 排障见 [troubleshooting.md](troubleshooting.md)
+Slack:
+
+1. 打开全局 shortcut  
+   Open the global shortcut.
+2. 在 modal 中选择 agent、cwd 和 opening message  
+   Choose agent, cwd, and opening message in the modal.
+3. 在创建出来的 thread 里继续，不再切换 agent 或 cwd  
+   Continue inside the created thread without changing agent or cwd.
+
+## 11. 相关文档 / Related Docs
+
+- [installation.md](installation.md)
+- [configuration.md](configuration.md)
+- [platforms/slack.md](platforms/slack.md)
+- [platforms/lark.md](platforms/lark.md)
+- [troubleshooting.md](troubleshooting.md)

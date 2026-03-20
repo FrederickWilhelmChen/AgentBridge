@@ -284,83 +284,15 @@ export class AgentBridgeService {
       }
     }
 
-    const parsed = parseIntent(message.rawText, {
-      allowedCwds: this.config.runtime.allowedCwds
-    });
-    const fallbackAgent = this.config.runtime.defaultAgent;
+    const parsed = parseIntent(message.rawText);
 
     if (parsed.kind === "control") {
-      const agentType = parsed.intent.agentType ?? fallbackAgent;
-
-      if (parsed.intent.type === "status") {
-        const status = this.getSessionStatus(agentType, message.platform, message.platformUserId);
-        return {
-          kind: "status",
-          agentType,
-          session: status.session,
-          run: status.run
-        };
-      }
-
-      if (parsed.intent.type === "restart_session") {
-        const existing = this.getSessionStatus(agentType, message.platform, message.platformUserId).session;
-        if (!existing) {
-          return {
-            kind: "info",
-            text: `No persistent session exists for ${agentType}. Use the shortcut to pick a workspace first.`,
-            session: null
-          };
-        }
-
-        const session = this.restartSession(
-          agentType,
-          existing.cwd,
-          message.platform,
-          message.platformUserId
-        );
-
-        return {
-          kind: "info",
-          text: `Persistent session reset.\n*Agent:* ${session.agentType}\n*Session:* ${session.sessionId}\n*cwd:* \`${session.cwd}\``,
-          session
-        };
-      }
-
-      if (parsed.intent.type === "new_session") {
-        const cwd = this.getSessionStatus(agentType, message.platform, message.platformUserId).session?.cwd
-          ?? this.config.runtime.allowedCwds[0]
-          ?? process.cwd();
-        const session = this.createOrResetPersistentSession(
-          agentType,
-          cwd,
-          message.platform,
-          message.platformUserId
-        );
-
-        return {
-          kind: "info",
-          text: `Persistent session ready.\n*Agent:* ${session.agentType}\n*Session:* ${session.sessionId}\n*cwd:* \`${session.cwd}\``,
-          session
-        };
-      }
-
-      if (parsed.intent.type === "set_cwd") {
-        const session = this.createOrResetPersistentSession(
-          agentType,
-          parsed.intent.cwd,
-          message.platform,
-          message.platformUserId
-        );
-
-        return {
-          kind: "info",
-          text: `Persistent session ready.\n*Agent:* ${session.agentType}\n*Session:* ${session.sessionId}\n*cwd:* \`${session.cwd}\``,
-          session
-        };
-      }
-
       if (parsed.intent.type === "interrupt") {
-        const status = this.getSessionStatus(agentType, message.platform, message.platformUserId);
+        const status = this.getSessionStatus(
+          this.config.runtime.defaultAgent,
+          message.platform,
+          message.platformUserId
+        );
         const runId = status.run?.runId ?? status.session?.lastRunId;
         const interrupted = runId ? this.interruptRun(runId) : false;
 
@@ -372,9 +304,7 @@ export class AgentBridgeService {
       }
     }
 
-    const preferredAgent = parsed.kind === "ai_prompt"
-      ? parsed.agentType ?? fallbackAgent
-      : fallbackAgent;
+    const preferredAgent = this.config.runtime.defaultAgent;
     const prompt = buildPromptWithAttachments(message);
     const status = this.getSessionStatus(preferredAgent, message.platform, message.platformUserId);
 

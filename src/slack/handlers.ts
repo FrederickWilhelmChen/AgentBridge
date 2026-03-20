@@ -7,7 +7,7 @@ import type { IncomingImageAttachment } from "../platform/types.js";
 import type { ImageCache } from "../runtime/image-cache.js";
 import type { AgentBridgeService } from "../services/agent-bridge-service.js";
 import type { InboundMessageStore } from "../store/inbound-message-store.js";
-import { buildExecutionBlocks, buildInfoBlocks, buildStatusBlocks } from "./messages.js";
+import { buildExecutionBlocks, buildInfoBlocks } from "./messages.js";
 import { buildConsoleModal } from "./views.js";
 
 type HandlerContext = {
@@ -178,21 +178,6 @@ export function registerSlackHandlers(app: App, context: HandlerContext) {
             title: result.title,
             run: result.run,
             session: result.session
-          })
-        });
-        context.messageDeduper?.markCompleted("slack", message.ts);
-        return;
-      }
-
-      if (result.kind === "status") {
-        await client.chat.update({
-          channel: message.channel,
-          ts: startMessage.ts,
-          text: "AgentBridge response",
-          blocks: buildStatusBlocks({
-            agentType: result.agentType,
-            session: result.session,
-            run: result.run
           })
         });
         context.messageDeduper?.markCompleted("slack", message.ts);

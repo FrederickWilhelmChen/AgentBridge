@@ -1,4 +1,3 @@
-import type { AgentType } from "../domain/enums.js";
 import type { Run, Session } from "../domain/models.js";
 
 export type Platform = "slack" | "lark";
@@ -28,12 +27,6 @@ export type MessageHandlingResult =
       title: string;
       run: Run;
       session: Session | null;
-    }
-  | {
-      kind: "status";
-      agentType: AgentType;
-      session: Session | null;
-      run: Run | null;
     }
   | {
       kind: "info";
