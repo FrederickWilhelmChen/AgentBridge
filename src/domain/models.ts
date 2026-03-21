@@ -1,4 +1,41 @@
-import type { AgentType, RunStatus, SessionMode, SessionStatus } from "./enums.js";
+import type {
+  AgentType,
+  ExecutionContextKind,
+  ExecutionContextStatus,
+  RunStatus,
+  SessionMode,
+  SessionStatus,
+  WorkspaceKind,
+  WorkspaceSource
+} from "./enums.js";
+
+export type WorkspaceCapabilities = {
+  gitCapable: boolean;
+  worktreeCapable: boolean;
+};
+
+export type Workspace = {
+  workspaceId: string;
+  rootPath: string;
+  kind: WorkspaceKind;
+  source: WorkspaceSource;
+  capabilities: WorkspaceCapabilities;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt: string | null;
+};
+
+export type ExecutionContext = {
+  contextId: string;
+  workspaceId: string;
+  kind: ExecutionContextKind;
+  path: string;
+  managed: boolean;
+  status: ExecutionContextStatus;
+  branch: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type Session = {
   sessionId: string;

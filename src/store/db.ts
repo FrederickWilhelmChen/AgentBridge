@@ -48,6 +48,30 @@ export function createDatabase(dbPath: string) {
       completed_at TEXT,
       PRIMARY KEY (platform, message_id)
     );
+
+    CREATE TABLE IF NOT EXISTS workspaces (
+      workspace_id TEXT PRIMARY KEY,
+      root_path TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      source TEXT NOT NULL,
+      git_capable INTEGER NOT NULL,
+      worktree_capable INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_used_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS execution_contexts (
+      context_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      path TEXT NOT NULL,
+      managed INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      branch TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 
   const sessionColumns = database
@@ -104,8 +128,80 @@ export function createDatabase(dbPath: string) {
             WHEN platform_channel_id = '' THEN slack_channel_id
             ELSE platform_channel_id
           END,
-          platform_thread_id = COALESCE(platform_thread_id, slack_thread_ts)
+      platform_thread_id = COALESCE(platform_thread_id, slack_thread_ts)
     `);
+  }
+
+  const workspaceColumns = database
+    .prepare("PRAGMA table_info(workspaces)")
+    .all() as Array<{ name: string }>;
+
+  if (!workspaceColumns.some((column) => column.name === "root_path")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN root_path TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (!workspaceColumns.some((column) => column.name === "kind")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN kind TEXT NOT NULL DEFAULT 'plain_dir'");
+  }
+
+  if (!workspaceColumns.some((column) => column.name === "source")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'");
+  }
+
+  if (!workspaceColumns.some((column) => column.name === "git_capable")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN git_capable INTEGER NOT NULL DEFAULT 0");
+  }
+
+  if (!workspaceColumns.some((column) => column.name === "worktree_capable")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN worktree_capable INTEGER NOT NULL DEFAULT 0");
+  }
+
+  if (!workspaceColumns.some((column) => column.name === "created_at")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN created_at TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (!workspaceColumns.some((column) => column.name === "updated_at")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (!workspaceColumns.some((column) => column.name === "last_used_at")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN last_used_at TEXT");
+  }
+
+  const executionContextColumns = database
+    .prepare("PRAGMA table_info(execution_contexts)")
+    .all() as Array<{ name: string }>;
+
+  if (!executionContextColumns.some((column) => column.name === "workspace_id")) {
+    database.exec("ALTER TABLE execution_contexts ADD COLUMN workspace_id TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (!executionContextColumns.some((column) => column.name === "kind")) {
+    database.exec("ALTER TABLE execution_contexts ADD COLUMN kind TEXT NOT NULL DEFAULT 'main'");
+  }
+
+  if (!executionContextColumns.some((column) => column.name === "path")) {
+    database.exec("ALTER TABLE execution_contexts ADD COLUMN path TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (!executionContextColumns.some((column) => column.name === "managed")) {
+    database.exec("ALTER TABLE execution_contexts ADD COLUMN managed INTEGER NOT NULL DEFAULT 0");
+  }
+
+  if (!executionContextColumns.some((column) => column.name === "status")) {
+    database.exec("ALTER TABLE execution_contexts ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
+  }
+
+  if (!executionContextColumns.some((column) => column.name === "branch")) {
+    database.exec("ALTER TABLE execution_contexts ADD COLUMN branch TEXT");
+  }
+
+  if (!executionContextColumns.some((column) => column.name === "created_at")) {
+    database.exec("ALTER TABLE execution_contexts ADD COLUMN created_at TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (!executionContextColumns.some((column) => column.name === "updated_at")) {
+    database.exec("ALTER TABLE execution_contexts ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''");
   }
 
   return database;
