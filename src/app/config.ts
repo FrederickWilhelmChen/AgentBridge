@@ -16,7 +16,9 @@ const commandSchema = z.object({
 
 const commonEnvSchema = z.object({
   AGENTBRIDGE_DB_PATH: z.string().min(1).default("./agentbridge.db"),
-  AGENTBRIDGE_ALLOWED_CWDS: z.string().min(1),
+  AGENTBRIDGE_ALLOWED_CWDS: z.string().optional(),
+  AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS: z.string().optional(),
+  AGENTBRIDGE_MANUAL_WORKSPACES: z.string().optional(),
   AGENTBRIDGE_ENABLED_PLATFORMS: z.string().default("slack"),
   AGENTBRIDGE_DEFAULT_AGENT: z.enum(["claude", "codex"]).default("codex"),
   AGENTBRIDGE_DEFAULT_TIMEOUT_MS: z.coerce.number().int().positive().default(1_800_000),
@@ -149,6 +151,8 @@ export type AppConfig = {
   };
   runtime: {
     enabledPlatforms: Platform[];
+    allowedWorkspaceParents?: string[];
+    manualWorkspaces?: string[];
     allowedCwds: string[];
     defaultAgent: "claude" | "codex";
     defaultTimeoutMs: number;
@@ -174,6 +178,9 @@ export function loadConfig(): AppConfig {
   const detectedWindowsProxy = detectWindowsProxy();
   const httpProxy = normalizeProxyUrl(parsed.AGENTBRIDGE_HTTP_PROXY ?? detectedWindowsProxy);
   const httpsProxy = normalizeProxyUrl(parsed.AGENTBRIDGE_HTTPS_PROXY ?? detectedWindowsProxy);
+  const allowedWorkspaceParents = parsePathList(parsed.AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS);
+  const manualWorkspaces = parsePathList(parsed.AGENTBRIDGE_MANUAL_WORKSPACES);
+  const legacyAllowedCwds = parsePathList(parsed.AGENTBRIDGE_ALLOWED_CWDS);
 
   const slack = enabledPlatforms.includes("slack")
     ? slackEnvSchema.parse({
@@ -221,10 +228,9 @@ export function loadConfig(): AppConfig {
     },
     runtime: {
       enabledPlatforms,
-      allowedCwds: parsed.AGENTBRIDGE_ALLOWED_CWDS.split(",")
-        .map((cwd) => cwd.trim())
-        .filter(Boolean)
-        .map((cwd) => path.resolve(cwd)),
+      allowedWorkspaceParents,
+      manualWorkspaces,
+      allowedCwds: Array.from(new Set([...legacyAllowedCwds, ...manualWorkspaces])),
       defaultAgent: parsed.AGENTBRIDGE_DEFAULT_AGENT,
       defaultTimeoutMs: parsed.AGENTBRIDGE_DEFAULT_TIMEOUT_MS,
       httpProxy,
@@ -255,6 +261,8 @@ function parseEnv() {
   return commonEnvSchema.parse({
     AGENTBRIDGE_DB_PATH: process.env.AGENTBRIDGE_DB_PATH,
     AGENTBRIDGE_ALLOWED_CWDS: process.env.AGENTBRIDGE_ALLOWED_CWDS,
+    AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS: process.env.AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS,
+    AGENTBRIDGE_MANUAL_WORKSPACES: process.env.AGENTBRIDGE_MANUAL_WORKSPACES,
     AGENTBRIDGE_ENABLED_PLATFORMS: process.env.AGENTBRIDGE_ENABLED_PLATFORMS,
     AGENTBRIDGE_DEFAULT_AGENT: process.env.AGENTBRIDGE_DEFAULT_AGENT,
     AGENTBRIDGE_DEFAULT_TIMEOUT_MS: process.env.AGENTBRIDGE_DEFAULT_TIMEOUT_MS,
@@ -269,6 +277,18 @@ function parseEnv() {
     AGENTBRIDGE_CODEX_RESUME_ARGS: process.env.AGENTBRIDGE_CODEX_RESUME_ARGS,
     AGENTBRIDGE_CODEX_OUTPUT_MODE: process.env.AGENTBRIDGE_CODEX_OUTPUT_MODE
   });
+}
+
+function parsePathList(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => path.resolve(part));
 }
 
 function parseEnabledPlatforms(value: string): Platform[] {
