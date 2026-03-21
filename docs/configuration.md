@@ -42,12 +42,12 @@ Notes:
 - AgentBridge 会在首次运行时自动创建数据库  
   AgentBridge will create the database automatically on first run.
 
-### `AGENTBRIDGE_ALLOWED_CWDS`
+### `AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS`
 
-- 作用：允许使用的工作目录白名单  
-  Purpose: whitelist of allowed working directories.
-- 是否必填：是  
-  Required: yes.
+- 作用：扫描 Git workspace 的父目录  
+  Purpose: parent directories scanned for Git workspaces.
+- 是否必填：推荐填写  
+  Required: recommended.
 - 格式：多个绝对路径用英文逗号分隔  
   Format: absolute paths separated by commas.
 
@@ -55,16 +55,55 @@ Notes:
 Example:
 
 ```env
-AGENTBRIDGE_ALLOWED_CWDS=E:/project-a,E:/project-b
+AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS=E:/repos,E:/projects
 ```
 
 说明：  
 Notes:
 
-- 必须使用绝对路径  
-  You must use absolute paths.
-- 所有 session 初始化都只能从这份白名单里选择 cwd  
-  All session setup flows must choose cwd from this whitelist.
+- 扫描结果会按同一 Git 仓库去重  
+  Scan results are deduplicated by Git repository identity.
+- linked worktree 不会出现在顶层 workspace 选择列表里  
+  Linked worktrees do not appear in the top-level workspace selection list.
+
+### `AGENTBRIDGE_MANUAL_WORKSPACES`
+
+- 作用：显式登记普通目录 workspace  
+  Purpose: explicitly register plain directory workspaces.
+- 是否必填：当你有非 Git 目录要使用时填写  
+  Required: set this when you want to use non-Git folders.
+- 格式：多个绝对路径用英文逗号分隔  
+  Format: absolute paths separated by commas.
+
+示例：  
+Example:
+
+```env
+AGENTBRIDGE_MANUAL_WORKSPACES=E:/multi-ideas,E:/notes
+```
+
+说明：  
+Notes:
+
+- 适用于笔记目录、资料目录、邮件整理目录等普通工作区  
+  Suitable for notes, assets, email triage folders, and other plain workspaces.
+- 没有 Git 的环境里，这类 workspace 仍然可用  
+  These workspaces still work even when Git is not installed.
+
+### `AGENTBRIDGE_ALLOWED_CWDS`
+
+- 作用：旧版兼容字段  
+  Purpose: legacy compatibility field.
+- 是否必填：否  
+  Required: no.
+
+说明：  
+Notes:
+
+- 新配置优先使用 `AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS` 与 `AGENTBRIDGE_MANUAL_WORKSPACES`  
+  New setups should prefer `AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS` plus `AGENTBRIDGE_MANUAL_WORKSPACES`.
+- 这个字段仍然会被读取，用于过渡期兼容  
+  This field is still read for migration compatibility.
 
 ### `AGENTBRIDGE_DEFAULT_AGENT`
 
@@ -250,10 +289,21 @@ See the following for Feishu topic mode, shared cards, and long-connection notes
 
 - [platforms/lark.md](platforms/lark.md)
 
-## 7. 常见误配 / Common Misconfigurations
+## 7. Workspace 与 Git / Workspace And Git Notes
 
-- `AGENTBRIDGE_ALLOWED_CWDS` 为空  
-  `AGENTBRIDGE_ALLOWED_CWDS` is empty.
+- Git repo workspace 会自动发现并去重  
+  Git repo workspaces are auto-discovered and deduplicated.
+- plain workspace 依赖手动配置  
+  Plain workspaces rely on manual registration.
+- Git 不可用时，doctor 会降级为 plain-workspace 模式  
+  When Git is unavailable, doctor degrades to plain-workspace mode.
+- managed worktree 只适用于 Git workspace  
+  Managed worktrees only apply to Git workspaces.
+
+## 8. 常见误配 / Common Misconfigurations
+
+- `AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS` 和 `AGENTBRIDGE_MANUAL_WORKSPACES` 都为空  
+  `AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS` and `AGENTBRIDGE_MANUAL_WORKSPACES` are both empty.
 - `AGENTBRIDGE_CLAUDE_COMMAND` 指向的不是你手动测试过的那个 `claude`  
   `AGENTBRIDGE_CLAUDE_COMMAND` points to a different `claude` than the one you tested manually.
 - 明明不需要代理却填了代理  
