@@ -1,15 +1,17 @@
 import crypto from "node:crypto";
 import type { AgentType } from "../domain/enums.js";
-import type { Run, Session, Workspace } from "../domain/models.js";
+import type { ExecutionContext, Run, Session, Workspace } from "../domain/models.js";
 import { RunStore } from "../store/run-store.js";
 import { SessionStore } from "../store/session-store.js";
+import { ExecutionContextStore } from "../store/execution-context-store.js";
 import { WorkspaceStore } from "../store/workspace-store.js";
 
 export class SessionService {
   public constructor(
     private readonly sessionStore: SessionStore,
     private readonly runStore: RunStore,
-    private readonly workspaceStore?: WorkspaceStore
+    private readonly workspaceStore?: WorkspaceStore,
+    private readonly executionContextStore?: ExecutionContextStore
   ) {}
 
   public createPersistentSession(
@@ -18,13 +20,17 @@ export class SessionService {
     platform: Session["platform"] = "slack",
     platformUserId = "",
     platformChannelId = "",
-    platformThreadId: string | null = null
+    platformThreadId: string | null = null,
+    workspaceId: string | null = null,
+    currentContextId: string | null = null
   ): Session {
     const now = new Date().toISOString();
     const session: Session = {
       sessionId: crypto.randomUUID(),
       agentType,
       cwd,
+      workspaceId,
+      currentContextId,
       mode: "persistent",
       status: "idle",
       providerSessionId: null,
@@ -46,14 +52,22 @@ export class SessionService {
     platform: Session["platform"] = "slack",
     platformUserId = "",
     platformChannelId = "",
-    platformThreadId: string | null = null
+    platformThreadId: string | null = null,
+    workspaceId: string | null = null,
+    currentContextId: string | null = null
   ): Session {
     const existing = this.sessionStore.findPersistentByScope(agentType, platform, platformUserId);
     if (existing) {
-      if (existing.cwd !== cwd) {
+      if (
+        existing.cwd !== cwd
+        || (existing.workspaceId ?? null) !== workspaceId
+        || (existing.currentContextId ?? null) !== currentContextId
+      ) {
         return this.sessionStore.update({
           ...existing,
           cwd,
+          workspaceId,
+          currentContextId,
           lastActiveAt: new Date().toISOString()
         });
       }
@@ -67,7 +81,9 @@ export class SessionService {
       platform,
       platformUserId,
       platformChannelId,
-      platformThreadId
+      platformThreadId,
+      workspaceId,
+      currentContextId
     );
   }
 
@@ -176,5 +192,90 @@ export class SessionService {
       workspaceId: existing.workspaceId,
       createdAt: existing.createdAt
     });
+  }
+
+  public resolveWorkspaceByRootPath(rootPath: string): Workspace | null {
+    return this.findWorkspaceByRootPath(rootPath);
+  }
+
+  public ensureMainContextForWorkspace(workspace: Workspace): ExecutionContext {
+    if (!this.executionContextStore) {
+      throw new Error("Execution context store is not configured");
+    }
+
+    const existingMain = this.executionContextStore
+      .listByWorkspaceId(workspace.workspaceId)
+      .find((context) => context.kind === "main");
+
+    if (existingMain) {
+      return existingMain.status === "active"
+        ? existingMain
+        : this.executionContextStore.update({
+            ...existingMain,
+            status: "active",
+            updatedAt: new Date().toISOString()
+          });
+    }
+
+    const now = new Date().toISOString();
+    return this.executionContextStore.create({
+      contextId: crypto.randomUUID(),
+      workspaceId: workspace.workspaceId,
+      kind: "main",
+      path: workspace.rootPath,
+      managed: false,
+      status: "active",
+      branch: null,
+      createdAt: now,
+      updatedAt: now
+    });
+  }
+
+  public resolveWorkspaceSelection(rootPath: string): { workspace: Workspace; context: ExecutionContext } | null {
+    const workspace = this.resolveWorkspaceByRootPath(rootPath);
+    if (!workspace) {
+      return null;
+    }
+
+    return {
+      workspace,
+      context: this.ensureMainContextForWorkspace(workspace)
+    };
+  }
+
+  public resolveSessionExecutionContext(session: Session): ExecutionContext | null {
+    if (!this.executionContextStore) {
+      return null;
+    }
+
+    if (session.currentContextId) {
+      const context = this.executionContextStore.findById(session.currentContextId);
+      if (context) {
+        return context;
+      }
+    }
+
+    if (!session.workspaceId || !this.workspaceStore) {
+      return null;
+    }
+
+    const workspace = this.workspaceStore.findById(session.workspaceId);
+    if (!workspace) {
+      return null;
+    }
+
+    return this.ensureMainContextForWorkspace(workspace);
+  }
+
+  public getDefaultWorkspaceSelection(): { workspace: Workspace; context: ExecutionContext } | null {
+    const [workspace] = this.listWorkspaces();
+    if (!workspace) {
+      return null;
+    }
+
+    return {
+      workspace,
+      context: this.ensureMainContextForWorkspace(workspace)
+    };
   }
 }

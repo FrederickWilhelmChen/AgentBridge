@@ -28,7 +28,8 @@ export class AgentBridgeService {
     platformThreadId?: string | null;
     platformUserId?: string;
   }): Promise<RunExecutionResult> {
-    this.ensureAllowedCwd(params.cwd);
+    const resolved = this.resolveExecutionTarget(params.cwd);
+    const executionCwd = resolved?.context.path ?? this.ensureAllowedCwd(params.cwd);
 
     let run = this.sessionService.createRun({
       sessionId: null,
@@ -47,7 +48,7 @@ export class AgentBridgeService {
 
     const result = await this.processManager.run(
       run.runId,
-      buildRunOnceProfile(this.config, params.agentType, params.cwd, params.message),
+      buildRunOnceProfile(this.config, params.agentType, executionCwd, params.message),
       this.config.runtime.defaultTimeoutMs
     );
 
@@ -76,7 +77,8 @@ export class AgentBridgeService {
     platformThreadId: string | null = null
   ): Session {
     this.ensurePersistentSessionSupport(agentType);
-    this.ensureAllowedCwd(cwd);
+    const resolved = this.resolveExecutionTarget(cwd);
+    const executionCwd = resolved?.context.path ?? this.ensureAllowedCwd(cwd);
     const existing = platformThreadId
       ? this.sessionService.getPersistentSessionByThread(
           platform,
@@ -92,17 +94,21 @@ export class AgentBridgeService {
     if (!existing || existing.agentType !== agentType) {
       return this.sessionService.createPersistentSession(
         agentType,
-        cwd,
+        executionCwd,
         platform,
         platformUserId,
         platformChannelId,
-        platformThreadId
+        platformThreadId,
+        resolved?.workspace.workspaceId ?? null,
+        resolved?.context.contextId ?? null
       );
     }
 
     return this.sessionService.updateSession({
       ...existing,
-      cwd,
+      cwd: executionCwd,
+      workspaceId: resolved?.workspace.workspaceId ?? existing.workspaceId ?? null,
+      currentContextId: resolved?.context.contextId ?? existing.currentContextId ?? null,
       status: "idle",
       providerSessionId: null,
       lastActiveAt: new Date().toISOString(),
@@ -120,7 +126,7 @@ export class AgentBridgeService {
     platformUserId?: string;
   }): Promise<RunExecutionResult> {
     this.ensurePersistentSessionSupport(params.agentType);
-    this.ensureAllowedCwd(params.cwd);
+    const resolved = this.resolveExecutionTarget(params.cwd);
 
     let session = (params.platform && params.platformThreadId)
       ? this.sessionService.getPersistentSessionByThread(
@@ -138,11 +144,17 @@ export class AgentBridgeService {
     if (!session) {
       session = this.sessionService.getOrCreatePersistentSession(
         params.agentType,
-        params.cwd,
+        resolved?.context.path ?? this.ensureAllowedCwd(params.cwd),
         params.platform ?? "slack",
-        params.platformUserId ?? ""
+        params.platformUserId ?? "",
+        params.platformChannelId,
+        params.platformThreadId ?? null,
+        resolved?.workspace.workspaceId ?? null,
+        resolved?.context.contextId ?? null
       );
     }
+    const currentContext = this.resolveSessionExecutionContext(session);
+    const executionCwd = currentContext?.path ?? resolved?.context.path ?? this.ensureAllowedCwd(params.cwd);
     let run = this.sessionService.createRun({
       sessionId: session.sessionId,
       agentType: params.agentType,
@@ -155,7 +167,9 @@ export class AgentBridgeService {
 
     session = this.sessionService.updateSession({
       ...session,
-      cwd: params.cwd,
+      cwd: executionCwd,
+      workspaceId: session.workspaceId ?? resolved?.workspace.workspaceId ?? null,
+      currentContextId: currentContext?.contextId ?? resolved?.context.contextId ?? session.currentContextId ?? null,
       status: "running",
       lastActiveAt: new Date().toISOString(),
       lastRunId: run.runId
@@ -170,11 +184,11 @@ export class AgentBridgeService {
       ? buildResumeProfile(
           this.config,
           params.agentType,
-          params.cwd,
+          executionCwd,
           params.message,
           session.providerSessionId
         )
-      : buildRunOnceProfile(this.config, params.agentType, params.cwd, params.message);
+      : buildRunOnceProfile(this.config, params.agentType, executionCwd, params.message);
 
     const result = await this.processManager.run(
       run.runId,
@@ -327,9 +341,10 @@ export class AgentBridgeService {
       };
     }
 
+    const defaultWorkspace = this.getDefaultWorkspaceSelection();
     const result = await this.runOnce({
       agentType: preferredAgent,
-      cwd: this.config.runtime.allowedCwds[0] ?? process.cwd(),
+      cwd: defaultWorkspace?.workspace.rootPath ?? this.config.runtime.allowedCwds[0] ?? process.cwd(),
       message: prompt,
       platform: message.platform,
       platformChannelId: message.platformChannelId,
@@ -345,10 +360,38 @@ export class AgentBridgeService {
     };
   }
 
-  private ensureAllowedCwd(cwd: string) {
+  private ensureAllowedCwd(cwd: string): string {
     if (!this.config.runtime.allowedCwds.includes(cwd)) {
       throw new Error(`CWD is not allowed: ${cwd}`);
     }
+
+    return cwd;
+  }
+
+  private resolveExecutionTarget(cwd: string) {
+    const resolver = (this.sessionService as SessionService & {
+      resolveWorkspaceSelection?: (cwd: string) => ReturnType<SessionService["resolveWorkspaceSelection"]>;
+    }).resolveWorkspaceSelection;
+
+    return typeof resolver === "function" ? resolver.call(this.sessionService, cwd) : null;
+  }
+
+  private resolveSessionExecutionContext(session: Session) {
+    const resolver = (this.sessionService as SessionService & {
+      resolveSessionExecutionContext?: (
+        session: Session
+      ) => ReturnType<SessionService["resolveSessionExecutionContext"]>;
+    }).resolveSessionExecutionContext;
+
+    return typeof resolver === "function" ? resolver.call(this.sessionService, session) : null;
+  }
+
+  private getDefaultWorkspaceSelection() {
+    const resolver = (this.sessionService as SessionService & {
+      getDefaultWorkspaceSelection?: () => ReturnType<SessionService["getDefaultWorkspaceSelection"]>;
+    }).getDefaultWorkspaceSelection;
+
+    return typeof resolver === "function" ? resolver.call(this.sessionService) : null;
   }
 
   private ensurePersistentSessionSupport(agentType: AgentType) {
