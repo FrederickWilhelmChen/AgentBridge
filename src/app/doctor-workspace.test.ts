@@ -27,3 +27,21 @@ test("doctor reports degraded workspace mode and skips repo scanning when git is
   assert.match(report.output, /Repository discovery and worktree features are disabled\./);
   assert.match(report.output, /Plain workspaces remain available\./);
 });
+
+test("doctor surfaces legacy cwd allowlist compatibility when only AGENTBRIDGE_ALLOWED_CWDS is configured", async () => {
+  const report = await buildDoctorReport({
+    env: {
+      AGENTBRIDGE_DB_PATH: "./agentbridge.db",
+      AGENTBRIDGE_ALLOWED_CWDS: "E:/legacy-workspace",
+      SLACK_ALLOWED_USER_ID: "U123"
+    },
+    probeGit: async () => ({ ok: true }),
+    scanWorkspaceParents: async () => [],
+    probeCommand: async () => ({ ok: true })
+  });
+
+  assert.equal(report.gitAvailable, true);
+  assert.match(report.output, /Legacy cwd allowlist \(compatibility\): E:\/legacy-workspace/);
+  assert.match(report.output, /Workspace parents: \(unset\)/);
+  assert.match(report.output, /Manual workspaces: \(unset\)/);
+});

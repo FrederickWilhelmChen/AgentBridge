@@ -151,8 +151,10 @@ export type AppConfig = {
   };
   runtime: {
     enabledPlatforms: Platform[];
-    allowedWorkspaceParents?: string[];
-    manualWorkspaces?: string[];
+    workspace?: {
+      allowedWorkspaceParents: string[];
+      manualWorkspaces: string[];
+    };
     allowedCwds: string[];
     defaultAgent: "claude" | "codex";
     defaultTimeoutMs: number;
@@ -181,6 +183,12 @@ export function loadConfig(): AppConfig {
   const allowedWorkspaceParents = parsePathList(parsed.AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS);
   const manualWorkspaces = parsePathList(parsed.AGENTBRIDGE_MANUAL_WORKSPACES);
   const legacyAllowedCwds = parsePathList(parsed.AGENTBRIDGE_ALLOWED_CWDS);
+
+  if (allowedWorkspaceParents.length === 0 && manualWorkspaces.length === 0 && legacyAllowedCwds.length === 0) {
+    throw new Error(
+      "No workspace source configured. Set AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS, AGENTBRIDGE_MANUAL_WORKSPACES, or legacy AGENTBRIDGE_ALLOWED_CWDS."
+    );
+  }
 
   const slack = enabledPlatforms.includes("slack")
     ? slackEnvSchema.parse({
@@ -228,8 +236,10 @@ export function loadConfig(): AppConfig {
     },
     runtime: {
       enabledPlatforms,
-      allowedWorkspaceParents,
-      manualWorkspaces,
+      workspace: {
+        allowedWorkspaceParents,
+        manualWorkspaces
+      },
       allowedCwds: Array.from(new Set([...legacyAllowedCwds, ...manualWorkspaces])),
       defaultAgent: parsed.AGENTBRIDGE_DEFAULT_AGENT,
       defaultTimeoutMs: parsed.AGENTBRIDGE_DEFAULT_TIMEOUT_MS,
