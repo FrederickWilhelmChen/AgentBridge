@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { config as loadEnv } from "dotenv";
 import { detectWindowsProxy, normalizeProxyUrl } from "./config.js";
@@ -166,7 +167,7 @@ function parsePathList(value: string | undefined): string[] {
     .split(",")
     .map((part) => part.trim())
     .filter(Boolean)
-    .map((part) => part);
+    .map((part) => path.resolve(part));
 }
 
 function formatList(values: string[]): string {

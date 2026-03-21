@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import path from "node:path";
 import { buildDoctorReport } from "./doctor.js";
 
 test("doctor reports degraded workspace mode and skips repo scanning when git is unavailable", async () => {
@@ -32,7 +33,7 @@ test("doctor surfaces legacy cwd allowlist compatibility when only AGENTBRIDGE_A
   const report = await buildDoctorReport({
     env: {
       AGENTBRIDGE_DB_PATH: "./agentbridge.db",
-      AGENTBRIDGE_ALLOWED_CWDS: "E:/legacy-workspace",
+      AGENTBRIDGE_ALLOWED_CWDS: "./legacy-workspace",
       SLACK_ALLOWED_USER_ID: "U123"
     },
     probeGit: async () => ({ ok: true }),
@@ -41,7 +42,30 @@ test("doctor surfaces legacy cwd allowlist compatibility when only AGENTBRIDGE_A
   });
 
   assert.equal(report.gitAvailable, true);
-  assert.match(report.output, /Legacy cwd allowlist \(compatibility\): E:\/legacy-workspace/);
+  assert.match(report.output, new RegExp(`Legacy cwd allowlist \\(compatibility\\): ${escapeRegExp(path.resolve("./legacy-workspace"))}`));
   assert.match(report.output, /Workspace parents: \(unset\)/);
   assert.match(report.output, /Manual workspaces: \(unset\)/);
 });
+
+test("doctor normalizes workspace-related paths relative to the current directory", async () => {
+  const report = await buildDoctorReport({
+    env: {
+      AGENTBRIDGE_DB_PATH: "./agentbridge.db",
+      AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS: "./repos",
+      AGENTBRIDGE_MANUAL_WORKSPACES: "./notes",
+      AGENTBRIDGE_ALLOWED_CWDS: "./legacy",
+      SLACK_ALLOWED_USER_ID: "U123"
+    },
+    probeGit: async () => ({ ok: true }),
+    scanWorkspaceParents: async () => [],
+    probeCommand: async () => ({ ok: true })
+  });
+
+  assert.match(report.output, new RegExp(`Workspace parents: ${escapeRegExp(path.resolve("./repos"))}`));
+  assert.match(report.output, new RegExp(`Manual workspaces: ${escapeRegExp(path.resolve("./notes"))}`));
+  assert.match(report.output, new RegExp(`Legacy cwd allowlist \\(compatibility\\): ${escapeRegExp(path.resolve("./legacy"))}`));
+});
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
