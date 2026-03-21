@@ -19,6 +19,16 @@ const EXECUTION_CONTEXT_REQUIRED_COLUMNS = [
   "updated_at"
 ] as const;
 
+const WORKSPACE_REQUIRED_COLUMNS = [
+  "root_path",
+  "kind",
+  "source",
+  "git_capable",
+  "worktree_capable",
+  "created_at",
+  "updated_at"
+] as const;
+
 function getTableColumns(database: SqliteDatabase, tableName: string): TableColumn[] {
   return database.prepare(`PRAGMA table_info(${tableName})`).all() as TableColumn[];
 }
@@ -121,6 +131,57 @@ function rebuildExecutionContextTable(database: SqliteDatabase) {
   }
 
   database.exec("DROP TABLE execution_contexts_legacy;");
+}
+
+function ensureWorkspaceTable(database: SqliteDatabase) {
+  const workspaceColumns = getTableColumns(database, "workspaces").map((column) => column.name);
+  const workspaceRowCount = database
+    .prepare("SELECT COUNT(*) AS count FROM workspaces")
+    .get() as { count: number };
+
+  if (workspaceRowCount.count > 0) {
+    const missingRequiredColumns = WORKSPACE_REQUIRED_COLUMNS.filter(
+      (columnName) => !workspaceColumns.includes(columnName)
+    );
+
+    if (missingRequiredColumns.length > 0) {
+      throw new Error(
+        `Cannot safely migrate workspaces legacy rows because required columns are missing: ${missingRequiredColumns.join(", ")}`
+      );
+    }
+  }
+
+  if (!workspaceColumns.includes("root_path")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN root_path TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (!workspaceColumns.includes("kind")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN kind TEXT NOT NULL DEFAULT 'plain_dir'");
+  }
+
+  if (!workspaceColumns.includes("source")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'");
+  }
+
+  if (!workspaceColumns.includes("git_capable")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN git_capable INTEGER NOT NULL DEFAULT 0");
+  }
+
+  if (!workspaceColumns.includes("worktree_capable")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN worktree_capable INTEGER NOT NULL DEFAULT 0");
+  }
+
+  if (!workspaceColumns.includes("created_at")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN created_at TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (!workspaceColumns.includes("updated_at")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (!workspaceColumns.includes("last_used_at")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN last_used_at TEXT");
+  }
 }
 
 function ensureExecutionContextTable(database: SqliteDatabase) {
@@ -310,39 +371,7 @@ export function createDatabase(dbPath: string) {
       `);
     }
 
-    const workspaceColumns = getTableColumns(database, "workspaces");
-
-    if (!workspaceColumns.some((column) => column.name === "root_path")) {
-      database.exec("ALTER TABLE workspaces ADD COLUMN root_path TEXT NOT NULL DEFAULT ''");
-    }
-
-    if (!workspaceColumns.some((column) => column.name === "kind")) {
-      database.exec("ALTER TABLE workspaces ADD COLUMN kind TEXT NOT NULL DEFAULT 'plain_dir'");
-    }
-
-    if (!workspaceColumns.some((column) => column.name === "source")) {
-      database.exec("ALTER TABLE workspaces ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'");
-    }
-
-    if (!workspaceColumns.some((column) => column.name === "git_capable")) {
-      database.exec("ALTER TABLE workspaces ADD COLUMN git_capable INTEGER NOT NULL DEFAULT 0");
-    }
-
-    if (!workspaceColumns.some((column) => column.name === "worktree_capable")) {
-      database.exec("ALTER TABLE workspaces ADD COLUMN worktree_capable INTEGER NOT NULL DEFAULT 0");
-    }
-
-    if (!workspaceColumns.some((column) => column.name === "created_at")) {
-      database.exec("ALTER TABLE workspaces ADD COLUMN created_at TEXT NOT NULL DEFAULT ''");
-    }
-
-    if (!workspaceColumns.some((column) => column.name === "updated_at")) {
-      database.exec("ALTER TABLE workspaces ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''");
-    }
-
-    if (!workspaceColumns.some((column) => column.name === "last_used_at")) {
-      database.exec("ALTER TABLE workspaces ADD COLUMN last_used_at TEXT");
-    }
+    ensureWorkspaceTable(database);
 
     ensureExecutionContextTable(database);
     database.exec("COMMIT;");
