@@ -278,4 +278,22 @@ export class SessionService {
       context: this.ensureMainContextForWorkspace(workspace)
     };
   }
+
+  public buildPersistentSessionLockKey(params: {
+    agentType: AgentType;
+    platform: Session["platform"];
+    platformUserId: string;
+    platformChannelId?: string;
+    platformThreadId?: string | null;
+  }): string {
+    if (params.platformThreadId && params.platformChannelId) {
+      return `thread:${params.platform}:${params.platformUserId}:${params.platformChannelId}:${params.platformThreadId}`;
+    }
+
+    return `scope:${params.platform}:${params.platformUserId}:${params.agentType}`;
+  }
+
+  public buildExecutionContextLockKey(contextId: string | null | undefined, cwd: string): string {
+    return contextId ? `context:${contextId}` : `cwd:${cwd}`;
+  }
 }

@@ -4,6 +4,7 @@ import type { Run, Session } from "../domain/models.js";
 import { parseIntent } from "../intent/intent-router.js";
 import type { IncomingPlatformMessage, MessageHandlingResult } from "../platform/types.js";
 import { buildResumeProfile, buildRunOnceProfile } from "../runtime/agents.js";
+import { RuntimeLocks } from "../runtime/locks.js";
 import { ProcessManager } from "../runtime/process-manager.js";
 import { SessionService } from "./session-service.js";
 
@@ -13,6 +14,8 @@ export type RunExecutionResult = {
 };
 
 export class AgentBridgeService {
+  private readonly locks = new RuntimeLocks();
+
   public constructor(
     private readonly config: AppConfig,
     private readonly sessionService: SessionService,
@@ -30,42 +33,45 @@ export class AgentBridgeService {
   }): Promise<RunExecutionResult> {
     const resolved = this.resolveExecutionTarget(params.cwd);
     const executionCwd = resolved?.context.path ?? this.ensureAllowedCwd(params.cwd);
+    const contextLockKey = this.buildExecutionContextLockKey(resolved?.context.contextId, executionCwd);
 
-    let run = this.sessionService.createRun({
-      sessionId: null,
-      agentType: params.agentType,
-      ...(params.platform ? { platform: params.platform } : {}),
-      platformChannelId: params.platformChannelId,
-      platformThreadId: params.platformThreadId ?? null,
-      platformUserId: params.platformUserId ?? "",
-      inputText: params.message
+    return await this.locks.withContextLock(contextLockKey, async () => {
+      let run = this.sessionService.createRun({
+        sessionId: null,
+        agentType: params.agentType,
+        ...(params.platform ? { platform: params.platform } : {}),
+        platformChannelId: params.platformChannelId,
+        platformThreadId: params.platformThreadId ?? null,
+        platformUserId: params.platformUserId ?? "",
+        inputText: params.message
+      });
+
+      run = this.sessionService.updateRun({
+        ...run,
+        status: "starting"
+      });
+
+      const result = await this.processManager.run(
+        run.runId,
+        buildRunOnceProfile(this.config, params.agentType, executionCwd, params.message),
+        this.config.runtime.defaultTimeoutMs
+      );
+
+      run = this.sessionService.updateRun({
+        ...run,
+        status: result.status,
+        endedAt: new Date().toISOString(),
+        exitCode: result.exitCode,
+        outputTail: result.parsedOutput,
+        rawOutput: result.output,
+        errorReason: result.errorReason
+      });
+
+      return {
+        run,
+        session: null
+      };
     });
-
-    run = this.sessionService.updateRun({
-      ...run,
-      status: "starting"
-    });
-
-    const result = await this.processManager.run(
-      run.runId,
-      buildRunOnceProfile(this.config, params.agentType, executionCwd, params.message),
-      this.config.runtime.defaultTimeoutMs
-    );
-
-    run = this.sessionService.updateRun({
-      ...run,
-      status: result.status,
-      endedAt: new Date().toISOString(),
-      exitCode: result.exitCode,
-      outputTail: result.parsedOutput,
-      rawOutput: result.output,
-      errorReason: result.errorReason
-    });
-
-    return {
-      run,
-      session: null
-    };
   }
 
   public createOrResetPersistentSession(
@@ -125,99 +131,121 @@ export class AgentBridgeService {
     platformThreadId?: string | null;
     platformUserId?: string;
   }): Promise<RunExecutionResult> {
-    this.ensurePersistentSessionSupport(params.agentType);
-    const resolved = this.resolveExecutionTarget(params.cwd);
+    const sessionLockKey = this.buildPersistentSessionLockKey({
+      agentType: params.agentType,
+      platform: params.platform ?? "slack",
+      platformUserId: params.platformUserId ?? "",
+      platformChannelId: params.platformChannelId,
+      platformThreadId: params.platformThreadId ?? null
+    });
 
-    let session = (params.platform && params.platformThreadId)
-      ? this.sessionService.getPersistentSessionByThread(
-          params.platform,
+    return await this.locks.withSessionLock(sessionLockKey, async () => {
+      this.ensurePersistentSessionSupport(params.agentType);
+      const resolved = this.resolveExecutionTarget(params.cwd);
+
+      let session = (params.platform && params.platformThreadId)
+        ? this.sessionService.getPersistentSessionByThread(
+            params.platform,
+            params.platformUserId ?? "",
+            params.platformChannelId,
+            params.platformThreadId
+          )
+        : null;
+
+      if (session && session.agentType !== params.agentType) {
+        session = null;
+      }
+
+      if (!session) {
+        session = this.sessionService.getOrCreatePersistentSession(
+          params.agentType,
+          resolved?.context.path ?? this.ensureAllowedCwd(params.cwd),
+          params.platform ?? "slack",
           params.platformUserId ?? "",
           params.platformChannelId,
-          params.platformThreadId
-        )
-      : null;
+          params.platformThreadId ?? null,
+          resolved?.workspace.workspaceId ?? null,
+          resolved?.context.contextId ?? null
+        );
+      }
+      if (!session) {
+        throw new Error("Persistent session could not be created");
+      }
 
-    if (session && session.agentType !== params.agentType) {
-      session = null;
-    }
-
-    if (!session) {
-      session = this.sessionService.getOrCreatePersistentSession(
-        params.agentType,
-        resolved?.context.path ?? this.ensureAllowedCwd(params.cwd),
-        params.platform ?? "slack",
-        params.platformUserId ?? "",
-        params.platformChannelId,
-        params.platformThreadId ?? null,
-        resolved?.workspace.workspaceId ?? null,
-        resolved?.context.contextId ?? null
+      const activeSession = session;
+      const currentContext = this.resolveSessionExecutionContext(activeSession);
+      const executionCwd = currentContext?.path ?? resolved?.context.path ?? this.ensureAllowedCwd(params.cwd);
+      const contextLockKey = this.buildExecutionContextLockKey(
+        currentContext?.contextId ?? resolved?.context.contextId,
+        executionCwd
       );
-    }
-    const currentContext = this.resolveSessionExecutionContext(session);
-    const executionCwd = currentContext?.path ?? resolved?.context.path ?? this.ensureAllowedCwd(params.cwd);
-    let run = this.sessionService.createRun({
-      sessionId: session.sessionId,
-      agentType: params.agentType,
-      ...(params.platform ? { platform: params.platform } : {}),
-      platformChannelId: params.platformChannelId,
-      platformThreadId: params.platformThreadId ?? null,
-      platformUserId: params.platformUserId ?? "",
-      inputText: params.message
+
+      return await this.locks.withContextLock(contextLockKey, async () => {
+        let run = this.sessionService.createRun({
+          sessionId: activeSession.sessionId,
+          agentType: params.agentType,
+          ...(params.platform ? { platform: params.platform } : {}),
+          platformChannelId: params.platformChannelId,
+          platformThreadId: params.platformThreadId ?? null,
+          platformUserId: params.platformUserId ?? "",
+          inputText: params.message
+        });
+
+        let updatedSession = this.sessionService.updateSession({
+          ...activeSession,
+          cwd: executionCwd,
+          workspaceId: activeSession.workspaceId ?? resolved?.workspace.workspaceId ?? null,
+          currentContextId: currentContext?.contextId ?? resolved?.context.contextId ?? activeSession.currentContextId ?? null,
+          status: "running",
+          lastActiveAt: new Date().toISOString(),
+          lastRunId: run.runId
+        });
+
+        run = this.sessionService.updateRun({
+          ...run,
+          status: "starting"
+        });
+
+        const profile = updatedSession.providerSessionId
+          ? buildResumeProfile(
+              this.config,
+              params.agentType,
+              executionCwd,
+              params.message,
+              updatedSession.providerSessionId
+            )
+          : buildRunOnceProfile(this.config, params.agentType, executionCwd, params.message);
+
+        const result = await this.processManager.run(
+          run.runId,
+          profile,
+          this.config.runtime.defaultTimeoutMs
+        );
+
+        run = this.sessionService.updateRun({
+          ...run,
+          status: result.status,
+          endedAt: new Date().toISOString(),
+          exitCode: result.exitCode,
+          outputTail: result.parsedOutput,
+          rawOutput: result.output,
+          errorReason: result.errorReason
+        });
+
+        updatedSession = this.sessionService.updateSession({
+          ...updatedSession,
+          status: result.status === "finished" ? "idle" : "error",
+          providerSessionId: result.providerSessionId ?? updatedSession.providerSessionId,
+          lastActiveAt: new Date().toISOString(),
+          lastRunId: run.runId
+        });
+
+        return {
+          run,
+          session: updatedSession
+        };
+      });
     });
-
-    session = this.sessionService.updateSession({
-      ...session,
-      cwd: executionCwd,
-      workspaceId: session.workspaceId ?? resolved?.workspace.workspaceId ?? null,
-      currentContextId: currentContext?.contextId ?? resolved?.context.contextId ?? session.currentContextId ?? null,
-      status: "running",
-      lastActiveAt: new Date().toISOString(),
-      lastRunId: run.runId
-    });
-
-    run = this.sessionService.updateRun({
-      ...run,
-      status: "starting"
-    });
-
-    const profile = session.providerSessionId
-      ? buildResumeProfile(
-          this.config,
-          params.agentType,
-          executionCwd,
-          params.message,
-          session.providerSessionId
-        )
-      : buildRunOnceProfile(this.config, params.agentType, executionCwd, params.message);
-
-    const result = await this.processManager.run(
-      run.runId,
-      profile,
-      this.config.runtime.defaultTimeoutMs
-    );
-
-    run = this.sessionService.updateRun({
-      ...run,
-      status: result.status,
-      endedAt: new Date().toISOString(),
-      exitCode: result.exitCode,
-      outputTail: result.parsedOutput,
-      rawOutput: result.output,
-      errorReason: result.errorReason
-    });
-
-    session = this.sessionService.updateSession({
-      ...session,
-      status: result.status === "finished" ? "idle" : "error",
-      providerSessionId: result.providerSessionId ?? session.providerSessionId,
-      lastActiveAt: new Date().toISOString(),
-      lastRunId: run.runId
-    });
-
-    return {
-      run,
-      session
-    };
   }
 
   public getSessionStatus(
@@ -392,6 +420,49 @@ export class AgentBridgeService {
     }).getDefaultWorkspaceSelection;
 
     return typeof resolver === "function" ? resolver.call(this.sessionService) : null;
+  }
+
+  private buildPersistentSessionLockKey(params: {
+    agentType: AgentType;
+    platform: Session["platform"];
+    platformUserId: string;
+    platformChannelId?: string;
+    platformThreadId?: string | null;
+  }): string {
+    const resolver = (this.sessionService as SessionService & {
+      buildPersistentSessionLockKey?: (
+        params: {
+          agentType: AgentType;
+          platform: Session["platform"];
+          platformUserId: string;
+          platformChannelId?: string;
+          platformThreadId?: string | null;
+        }
+      ) => ReturnType<SessionService["buildPersistentSessionLockKey"]>;
+    }).buildPersistentSessionLockKey;
+
+    if (typeof resolver === "function") {
+      return resolver.call(this.sessionService, params);
+    }
+
+    if (params.platformThreadId && params.platformChannelId) {
+      return `thread:${params.platform}:${params.platformUserId}:${params.platformChannelId}:${params.platformThreadId}`;
+    }
+
+    return `scope:${params.platform}:${params.platformUserId}:${params.agentType}`;
+  }
+
+  private buildExecutionContextLockKey(contextId: string | null | undefined, cwd: string): string {
+    const resolver = (this.sessionService as SessionService & {
+      buildExecutionContextLockKey?: (
+        contextId: string | null | undefined,
+        cwd: string
+      ) => ReturnType<SessionService["buildExecutionContextLockKey"]>;
+    }).buildExecutionContextLockKey;
+
+    return typeof resolver === "function"
+      ? resolver.call(this.sessionService, contextId, cwd)
+      : (contextId ? `context:${contextId}` : `cwd:${cwd}`);
   }
 
   private ensurePersistentSessionSupport(agentType: AgentType) {
