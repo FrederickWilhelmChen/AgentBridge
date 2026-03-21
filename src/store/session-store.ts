@@ -17,6 +17,24 @@ type SessionRow = {
   last_run_id: string | null;
 };
 
+function toSessionParams(session: Session) {
+  return {
+    sessionId: session.sessionId,
+    agentType: session.agentType,
+    cwd: session.cwd,
+    mode: session.mode,
+    status: session.status,
+    providerSessionId: session.providerSessionId,
+    platform: session.platform,
+    platformChannelId: session.platformChannelId,
+    platformThreadId: session.platformThreadId,
+    platformUserId: session.platformUserId,
+    createdAt: session.createdAt,
+    lastActiveAt: session.lastActiveAt,
+    lastRunId: session.lastRunId
+  };
+}
+
 function mapSession(row: SessionRow): Session {
   return {
     sessionId: row.session_id,
@@ -47,7 +65,7 @@ export class SessionStore {
           @sessionId, @agentType, @cwd, @mode, @status, @providerSessionId, @platform, @platformChannelId, @platformThreadId, @platformUserId, @createdAt, @lastActiveAt, @lastRunId
         )
       `)
-      .run(session);
+      .run(toSessionParams(session));
 
     return session;
   }
@@ -125,7 +143,7 @@ export class SessionStore {
             last_run_id = @lastRunId
         WHERE session_id = @sessionId
       `)
-      .run(session);
+      .run(toSessionParams(session));
 
     return session;
   }

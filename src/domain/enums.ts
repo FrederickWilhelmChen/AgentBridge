@@ -7,6 +7,18 @@ export type SessionMode = (typeof SESSION_MODES)[number];
 export const SESSION_STATUSES = ["idle", "running", "error"] as const;
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
+export const WORKSPACE_KINDS = ["git_repo", "plain_dir"] as const;
+export type WorkspaceKind = (typeof WORKSPACE_KINDS)[number];
+
+export const WORKSPACE_SOURCES = ["scanned_git", "manual", "marker_file"] as const;
+export type WorkspaceSource = (typeof WORKSPACE_SOURCES)[number];
+
+export const EXECUTION_CONTEXT_KINDS = ["main", "git_worktree"] as const;
+export type ExecutionContextKind = (typeof EXECUTION_CONTEXT_KINDS)[number];
+
+export const EXECUTION_CONTEXT_STATUSES = ["active", "archived"] as const;
+export type ExecutionContextStatus = (typeof EXECUTION_CONTEXT_STATUSES)[number];
+
 export const RUN_STATUSES = [
   "queued",
   "starting",
