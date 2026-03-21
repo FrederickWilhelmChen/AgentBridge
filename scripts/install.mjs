@@ -174,8 +174,11 @@ function run(command, args, title) {
     stdio: "inherit",
     shell: process.platform === "win32"
   });
-  if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status ?? "unknown"}`);
+  if (result.error) {
+    throw new Error(`${command} ${args.join(" ")} failed to spawn: ${result.error.message}`);
+  }
+  if (result.status !== 0 && result.status !== null) {
+    throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}`);
   }
 }
 
