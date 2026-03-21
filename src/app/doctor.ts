@@ -27,6 +27,7 @@ export async function buildDoctorReport(deps: DoctorDeps = {}): Promise<DoctorRe
   const allowedUserId = env.SLACK_ALLOWED_USER_ID ?? "(unset)";
   const workspaceParents = parsePathList(env.AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS);
   const manualWorkspaces = parsePathList(env.AGENTBRIDGE_MANUAL_WORKSPACES);
+  const legacyAllowedCwds = parsePathList(env.AGENTBRIDGE_ALLOWED_CWDS);
   const claudeCommand = env.AGENTBRIDGE_CLAUDE_COMMAND ?? "claude";
   const codexCommand = env.AGENTBRIDGE_CODEX_COMMAND ?? "node";
   const probeGit = deps.probeGit ?? probeGitAvailability;
@@ -44,6 +45,9 @@ export async function buildDoctorReport(deps: DoctorDeps = {}): Promise<DoctorRe
   push(`Allowed user: ${allowedUserId}`);
   push(`Workspace parents: ${formatList(workspaceParents)}`);
   push(`Manual workspaces: ${formatList(manualWorkspaces)}`);
+  if (legacyAllowedCwds.length > 0) {
+    push(`Legacy cwd allowlist (compatibility): ${formatList(legacyAllowedCwds)}`);
+  }
   push(`HTTP proxy: ${httpProxy ?? "(none)"}`);
   push(`HTTPS proxy: ${httpsProxy ?? "(none)"}`);
   push("");
@@ -59,6 +63,10 @@ export async function buildDoctorReport(deps: DoctorDeps = {}): Promise<DoctorRe
     }
   } else {
     push("Git not found. Repository discovery and worktree features are disabled. Plain workspaces remain available.");
+  }
+
+  if (legacyAllowedCwds.length > 0 && workspaceParents.length === 0 && manualWorkspaces.length === 0) {
+    push("Workspace source: legacy cwd allowlist compatibility mode");
   }
 
   push("");
