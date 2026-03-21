@@ -32,6 +32,14 @@ function mapWorkspace(row: WorkspaceRow): Workspace {
 export class WorkspaceStore {
   public constructor(private readonly database: Database) {}
 
+  private findRowById(workspaceId: string): WorkspaceRow | null {
+    const row = this.database
+      .prepare("SELECT * FROM workspaces WHERE workspace_id = ?")
+      .get(workspaceId) as WorkspaceRow | undefined;
+
+    return row ?? null;
+  }
+
   public create(workspace: Workspace): Workspace {
     this.database
       .prepare(`
@@ -57,9 +65,7 @@ export class WorkspaceStore {
   }
 
   public findById(workspaceId: string): Workspace | null {
-    const row = this.database
-      .prepare("SELECT * FROM workspaces WHERE workspace_id = ?")
-      .get(workspaceId) as WorkspaceRow | undefined;
+    const row = this.findRowById(workspaceId);
 
     return row ? mapWorkspace(row) : null;
   }
@@ -73,6 +79,17 @@ export class WorkspaceStore {
   }
 
   public update(workspace: Workspace): Workspace {
+    const existing = this.findRowById(workspace.workspaceId);
+    if (!existing) {
+      throw new Error(`Workspace ${workspace.workspaceId} does not exist`);
+    }
+
+    if (existing.created_at !== workspace.createdAt) {
+      throw new Error(
+        `Workspace ${workspace.workspaceId} createdAt cannot change from ${existing.created_at} to ${workspace.createdAt}`
+      );
+    }
+
     const result = this.database
       .prepare(`
         UPDATE workspaces

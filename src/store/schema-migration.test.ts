@@ -52,7 +52,14 @@ test("fails execution-context migration when populated legacy rows are missing s
 
     database.exec(`
       CREATE TABLE workspaces (
-        workspace_id TEXT PRIMARY KEY
+        workspace_id TEXT PRIMARY KEY,
+        root_path TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        source TEXT NOT NULL,
+        git_capable INTEGER NOT NULL,
+        worktree_capable INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       );
 
       CREATE TABLE execution_contexts (
@@ -63,7 +70,12 @@ test("fails execution-context migration when populated legacy rows are missing s
         status TEXT NOT NULL
       );
 
-      INSERT INTO workspaces (workspace_id) VALUES ('workspace-1');
+      INSERT INTO workspaces (
+        workspace_id, root_path, kind, source, git_capable, worktree_capable, created_at, updated_at
+      ) VALUES (
+        'workspace-1', 'E:/repos/project-a', 'git_repo', 'manual', 1, 1,
+        '2026-03-21T09:30:00.000Z', '2026-03-21T09:35:00.000Z'
+      );
       INSERT INTO execution_contexts (
         context_id, workspace_id, kind, managed, status
       ) VALUES (
@@ -88,6 +100,33 @@ test("fails execution-context migration when populated legacy rows are missing s
       "status"
     ]);
     assert.equal((reopened.prepare("SELECT COUNT(*) AS count FROM execution_contexts").get() as { count: number }).count, 1);
+    reopened.close();
+  });
+});
+
+test("fails workspace migration when populated legacy rows are missing semantic columns", () => {
+  withTempDb((dbPath) => {
+    const database = new Database(dbPath);
+
+    database.exec(`
+      CREATE TABLE workspaces (
+        workspace_id TEXT PRIMARY KEY
+      );
+
+      INSERT INTO workspaces (workspace_id) VALUES ('workspace-1');
+    `);
+
+    database.close();
+
+    assert.throws(
+      () => createDatabase(dbPath),
+      /required columns are missing: root_path, kind, source, git_capable, worktree_capable, created_at, updated_at/i
+    );
+
+    const reopened = new Database(dbPath);
+    const columns = reopened.prepare("PRAGMA table_info(workspaces)").all() as Array<{ name: string }>;
+    assert.deepEqual(columns.map((column) => column.name), ["workspace_id"]);
+    assert.equal((reopened.prepare("SELECT COUNT(*) AS count FROM workspaces").get() as { count: number }).count, 1);
     reopened.close();
   });
 });
@@ -168,6 +207,8 @@ test("migrates partially populated workspace schemas while leaving empty executi
         root_path TEXT NOT NULL,
         kind TEXT NOT NULL,
         source TEXT NOT NULL,
+        git_capable INTEGER NOT NULL,
+        worktree_capable INTEGER NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -184,9 +225,9 @@ test("migrates partially populated workspace schemas while leaving empty executi
       );
 
       INSERT INTO workspaces (
-        workspace_id, root_path, kind, source, created_at, updated_at
+        workspace_id, root_path, kind, source, git_capable, worktree_capable, created_at, updated_at
       ) VALUES (
-        'workspace-1', 'E:/repos/project-a', 'git_repo', 'manual',
+        'workspace-1', 'E:/repos/project-a', 'git_repo', 'manual', 1, 1,
         '2026-03-21T09:30:00.000Z', '2026-03-21T09:35:00.000Z'
       );
     `);
@@ -209,6 +250,7 @@ test("migrates partially populated workspace schemas while leaving empty executi
     assert.equal((migrated.prepare("SELECT COUNT(*) AS count FROM execution_contexts").get() as { count: number }).count, 0);
     assert.equal(sessionStore.findById("session-1")?.cwd, "E:/AgentBridge");
     assert.equal(workspaceStore.findById("workspace-1")?.rootPath, "E:/repos/project-a");
+    assert.equal(workspaceStore.findById("workspace-1")?.capabilities.gitCapable, true);
 
     migrated.close();
   });

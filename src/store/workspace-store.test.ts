@@ -49,7 +49,6 @@ test("update preserves the original createdAt while changing mutable fields", ()
       gitCapable: false,
       worktreeCapable: false
     },
-    createdAt: "2020-01-01T00:00:00.000Z",
     updatedAt: "2026-03-21T11:00:00.000Z",
     lastUsedAt: null
   });
@@ -67,6 +66,22 @@ test("update preserves the original createdAt while changing mutable fields", ()
     updatedAt: "2026-03-21T11:00:00.000Z",
     lastUsedAt: null
   });
+});
+
+test("update fails loudly when createdAt drifts from the stored workspace", () => {
+  const database = createDatabase(":memory:");
+  const store = new WorkspaceStore(database);
+  const original = createWorkspace();
+  store.create(original);
+
+  assert.throws(
+    () =>
+      store.update({
+        ...original,
+        createdAt: "2020-01-01T00:00:00.000Z"
+      }),
+    /createdAt/i
+  );
 });
 
 test("update fails loudly when the workspace does not exist", () => {
