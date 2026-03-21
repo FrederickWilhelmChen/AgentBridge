@@ -95,7 +95,7 @@ test("buildExecutionBlocks hides the interrupt button after the run finishes", (
   assert.equal(actions.type, "actions");
   assert.deepEqual(
     actions.elements.map((element: any) => element.text.text),
-    ["Open Console"]
+    ["New Session"]
   );
 });
 
@@ -113,6 +113,6 @@ test("buildExecutionBlocks keeps the interrupt button for active runs", () => {
   const actions = blocks[2] as any;
   assert.deepEqual(
     actions.elements.map((element: any) => element.text.text),
-    ["Interrupt", "Open Console"]
+    ["Interrupt", "New Session"]
   );
 });

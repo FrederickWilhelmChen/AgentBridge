@@ -334,6 +334,53 @@ test("lark handler asks the user to send start before using root messages", asyn
   assert.match(JSON.parse(replies[0]?.content.content ?? "{}").text ?? "", /send `start`/i);
 });
 
+test("lark handler explains that a thread without a bound session must be reinitialized", async () => {
+  const replies: any[] = [];
+
+  const handler = createLarkEventHandler({
+    allowedUserId: "ou_123",
+    agentBridgeService: {
+      getPersistentSessionByThread() {
+        return null;
+      }
+    } as any,
+    client: {
+      async replyToMessage(messageId: string, content: any) {
+        replies.push({ messageId, content });
+      }
+    } as any,
+    logger: { info() {}, warn() {}, error() {} } as any
+  });
+
+  await handler({
+    schema: "2.0",
+    header: {
+      event_type: "im.message.receive_v1",
+      event_id: "evt_thread_no_session",
+      create_time: "171"
+    },
+    event: {
+      message: {
+        message_id: "om_thread_no_session",
+        chat_id: "oc_123",
+        root_id: "om_root",
+        message_type: "text",
+        content: JSON.stringify({ text: "hello" })
+      },
+      sender: {
+        sender_id: {
+          open_id: "ou_123"
+        }
+      }
+    }
+  });
+
+  assert.match(
+    JSON.parse(replies[0]?.content.content ?? "{}").text ?? "",
+    /not bound to an active session/i
+  );
+});
+
 test("lark handler requires an exact agent choice before moving to workspace selection", async () => {
   const replies: any[] = [];
 
@@ -418,6 +465,189 @@ test("lark handler requires an exact agent choice before moving to workspace sel
 
   assert.match(JSON.parse(replies[1]?.content.content ?? "{}").text ?? "", /exactly `codex` or `claude`/i);
   assert.match(JSON.parse(replies[2]?.content.content ?? "{}").text ?? "", /choose workspace/i);
+});
+
+test("lark handler uses exact paths or unique label fragments for large workspace lists", async () => {
+  const replies: any[] = [];
+  const createdSessions: any[] = [];
+  const allowedWorkspaces = Array.from({ length: 25 }, (_, index) => ({
+    rootPath: `E:/repos/project-${index + 1}`,
+    label: `project-${index + 1}`,
+    kind: "git_repo" as const
+  }));
+
+  const handler = createLarkEventHandler({
+    allowedUserId: "ou_123",
+    allowedWorkspaces,
+    agentBridgeService: {
+      createOrResetPersistentSession(agentType: string, cwd: string, platform: string, userId: string, channelId: string, threadId: string) {
+        createdSessions.push({ agentType, cwd, platform, userId, channelId, threadId });
+        return {
+          sessionId: "session-1",
+          agentType,
+          cwd
+        };
+      }
+    } as any,
+    client: {
+      async replyToMessage(messageId: string, content: any) {
+        replies.push({ messageId, content });
+      }
+    } as any,
+    logger: { info() {}, warn() {}, error() {} } as any
+  });
+
+  const base = {
+    schema: "2.0",
+    header: {
+      event_type: "im.message.receive_v1",
+      create_time: "171"
+    },
+    event: {
+      sender: {
+        sender_id: {
+          open_id: "ou_123"
+        }
+      }
+    }
+  };
+
+  await handler({
+    ...base,
+    header: { ...base.header, event_id: "evt_large_start" },
+    event: {
+      ...base.event,
+      message: {
+        message_id: "om_large_start",
+        chat_id: "oc_123",
+        message_type: "text",
+        content: JSON.stringify({ text: "start" })
+      }
+    }
+  });
+
+  await handler({
+    ...base,
+    header: { ...base.header, event_id: "evt_large_agent" },
+    event: {
+      ...base.event,
+      message: {
+        message_id: "om_large_agent",
+        chat_id: "oc_123",
+        root_id: "om_large_start",
+        message_type: "text",
+        content: JSON.stringify({ text: "codex" })
+      }
+    }
+  });
+
+  await handler({
+    ...base,
+    header: { ...base.header, event_id: "evt_large_workspace" },
+    event: {
+      ...base.event,
+      message: {
+        message_id: "om_large_workspace",
+        chat_id: "oc_123",
+        root_id: "om_large_start",
+        message_type: "text",
+        content: JSON.stringify({ text: "project-25" })
+      }
+    }
+  });
+
+  assert.match(JSON.parse(replies[1]?.content.content ?? "{}").text ?? "", /unique label fragment/i);
+  assert.deepEqual(createdSessions[0], {
+    agentType: "codex",
+    cwd: "E:/repos/project-25",
+    platform: "lark",
+    userId: "ou_123",
+    channelId: "oc_123",
+    threadId: "om_large_start"
+  });
+});
+
+test("lark handler shows narrowed matches when a workspace fragment is ambiguous", async () => {
+  const replies: any[] = [];
+
+  const handler = createLarkEventHandler({
+    allowedUserId: "ou_123",
+    allowedWorkspaces: [
+      { rootPath: "E:/repos/project-api", label: "project-api", kind: "git_repo" },
+      { rootPath: "E:/repos/project-app", label: "project-app", kind: "git_repo" },
+      { rootPath: "E:/repos/notes", label: "notes", kind: "plain_dir" }
+    ],
+    agentBridgeService: {} as any,
+    client: {
+      async replyToMessage(messageId: string, content: any) {
+        replies.push({ messageId, content });
+      }
+    } as any,
+    logger: { info() {}, warn() {}, error() {} } as any
+  });
+
+  const base = {
+    schema: "2.0",
+    header: {
+      event_type: "im.message.receive_v1",
+      create_time: "171"
+    },
+    event: {
+      sender: {
+        sender_id: {
+          open_id: "ou_123"
+        }
+      }
+    }
+  };
+
+  await handler({
+    ...base,
+    header: { ...base.header, event_id: "evt_amb_start" },
+    event: {
+      ...base.event,
+      message: {
+        message_id: "om_amb_start",
+        chat_id: "oc_123",
+        message_type: "text",
+        content: JSON.stringify({ text: "start" })
+      }
+    }
+  });
+
+  await handler({
+    ...base,
+    header: { ...base.header, event_id: "evt_amb_agent" },
+    event: {
+      ...base.event,
+      message: {
+        message_id: "om_amb_agent",
+        chat_id: "oc_123",
+        root_id: "om_amb_start",
+        message_type: "text",
+        content: JSON.stringify({ text: "claude" })
+      }
+    }
+  });
+
+  await handler({
+    ...base,
+    header: { ...base.header, event_id: "evt_amb_workspace" },
+    event: {
+      ...base.event,
+      message: {
+        message_id: "om_amb_workspace",
+        chat_id: "oc_123",
+        root_id: "om_amb_start",
+        message_type: "text",
+        content: JSON.stringify({ text: "project" })
+      }
+    }
+  });
+
+  assert.match(JSON.parse(replies[2]?.content.content ?? "{}").text ?? "", /workspace is ambiguous/i);
+  assert.match(JSON.parse(replies[2]?.content.content ?? "{}").text ?? "", /project-api/i);
+  assert.match(JSON.parse(replies[2]?.content.content ?? "{}").text ?? "", /project-app/i);
 });
 
 test("lark handler initializes the thread after exact agent and workspace selection", async () => {

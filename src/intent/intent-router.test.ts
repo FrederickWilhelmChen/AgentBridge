@@ -53,3 +53,12 @@ test("does not treat interrupt discussion as a control command", () => {
     message: "help me explain interrupt handling"
   });
 });
+
+test("does not treat interrupt substrings inside normal prose as a control command", () => {
+  const result = parseIntent("this retry loop is unstoppable under load");
+
+  assert.deepEqual(result, {
+    kind: "ai_prompt",
+    message: "this retry loop is unstoppable under load"
+  });
+});

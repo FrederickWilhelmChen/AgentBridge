@@ -253,3 +253,56 @@ test("handleIncomingMessage falls back to the first registered workspace when no
   assert.equal(result.kind, "execution");
   assert.equal(usedCwd, "E:/multi-ideas");
 });
+
+test("sendToPersistentSession records a failed run and resets the session when process launch fails", async () => {
+  const database = createDatabase(":memory:");
+  const workspaceStore = new WorkspaceStore(database);
+  const contextStore = new ExecutionContextStore(database);
+  workspaceStore.create(createWorkspace());
+  contextStore.create(createContext());
+
+  const sessionService = new SessionService(
+    new SessionStore(database),
+    new RunStore(database),
+    workspaceStore,
+    contextStore
+  );
+  const persistentSession = sessionService.createPersistentSession(
+    "codex",
+    "E:/multi-ideas",
+    "slack",
+    "U123",
+    "D123",
+    "thread-1",
+    "workspace-1",
+    "context-1"
+  );
+  const service = new AgentBridgeService(createConfig(), sessionService, {
+    async run() {
+      throw new Error("spawn ENOENT");
+    }
+  } as never);
+
+  await assert.rejects(
+    () => service.sendToPersistentSession({
+      agentType: "codex",
+      cwd: "E:/multi-ideas",
+      message: "inspect the branch",
+      platform: "slack",
+      platformChannelId: "D123",
+      platformThreadId: "thread-1",
+      platformUserId: "U123"
+    }),
+    /spawn ENOENT/
+  );
+
+  const storedSession = sessionService.getSessionById(persistentSession.sessionId);
+  const storedRun = storedSession?.lastRunId
+    ? sessionService.getRunById(storedSession.lastRunId)
+    : null;
+
+  assert.equal(storedSession?.status, "error");
+  assert.equal(storedRun?.status, "failed");
+  assert.match(storedRun?.errorReason ?? "", /spawn ENOENT/);
+  assert.notEqual(storedRun?.endedAt, null);
+});

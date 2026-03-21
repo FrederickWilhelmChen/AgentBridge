@@ -42,6 +42,8 @@ type PendingThreadSetup =
   | { stage: "choose_agent" }
   | { stage: "choose_workspace"; agentType: AgentType };
 
+const LARK_WORKSPACE_LIST_LIMIT = 20;
+
 type HandlerArgs = {
   allowedUserId: string;
   allowedWorkspaces?: SelectableWorkspace[];
@@ -177,7 +179,7 @@ export function createLarkMessageHandler(
           return;
         }
 
-        await args.client.replyToMessage(messageId, buildLarkTextMessage(formatLarkStartHint()));
+        await args.client.replyToMessage(messageId, buildLarkTextMessage(formatLarkStartHint({ inThread: false })));
         args.messageDeduper?.markCompleted("lark", messageId);
         return;
       }
@@ -245,7 +247,10 @@ export function createLarkMessageHandler(
 
       const pendingSetup = pendingThreadSetups.get(setupKey);
       if (!pendingSetup) {
-        await args.client.replyToMessage(messageId, buildLarkTextMessage(formatLarkStartHint()));
+        await args.client.replyToMessage(
+          messageId,
+          buildLarkTextMessage(formatLarkStartHint({ inThread: true }))
+        );
         args.messageDeduper?.markCompleted("lark", messageId);
         return;
       }
@@ -271,11 +276,11 @@ export function createLarkMessageHandler(
       }
 
       const workspaces = getSelectableWorkspaces(args);
-      const selectedWorkspace = resolveWorkspaceChoice(normalizedText, workspaces);
-      if (!selectedWorkspace) {
+      const workspaceSelection = resolveWorkspaceChoice(normalizedText, workspaces);
+      if (workspaceSelection.kind !== "selected") {
         await args.client.replyToMessage(
           messageId,
-          buildLarkTextMessage(formatExactWorkspacePrompt(workspaces))
+          buildLarkTextMessage(formatWorkspaceRetryPrompt(workspaces, workspaceSelection))
         );
         args.messageDeduper?.markCompleted("lark", messageId);
         return;
@@ -287,7 +292,7 @@ export function createLarkMessageHandler(
 
       const session = args.agentBridgeService.createOrResetPersistentSession(
         pendingSetup.agentType,
-        selectedWorkspace.rootPath,
+        workspaceSelection.workspace.rootPath,
         "lark",
         userId,
         chatId,
@@ -296,7 +301,7 @@ export function createLarkMessageHandler(
       pendingThreadSetups.delete(setupKey);
       await args.client.replyToMessage(
         messageId,
-        buildLarkTextMessage(formatInitializedReply(session, selectedWorkspace.rootPath))
+        buildLarkTextMessage(formatInitializedReply(session, workspaceSelection.workspace.rootPath))
       );
       args.messageDeduper?.markCompleted("lark", messageId);
     } catch (error) {
@@ -410,13 +415,48 @@ function normalizeAgentChoice(normalizedText: string): AgentType | null {
   return null;
 }
 
-function resolveWorkspaceChoice(normalizedText: string, workspaces: SelectableWorkspace[]): SelectableWorkspace | null {
+function resolveWorkspaceChoice(
+  normalizedText: string,
+  workspaces: SelectableWorkspace[]
+):
+  | { kind: "selected"; workspace: SelectableWorkspace }
+  | { kind: "missing" }
+  | { kind: "ambiguous"; matches: SelectableWorkspace[] } {
   const index = Number(normalizedText);
-  if (Number.isInteger(index) && index >= 1 && index <= workspaces.length) {
-    return workspaces[index - 1] ?? null;
+  const visibleWorkspaces = workspaces.slice(0, LARK_WORKSPACE_LIST_LIMIT);
+  if (Number.isInteger(index) && index >= 1 && index <= visibleWorkspaces.length) {
+    const workspace = visibleWorkspaces[index - 1];
+    if (workspace) {
+      return { kind: "selected", workspace };
+    }
   }
 
-  return workspaces.find((workspace) => workspace.rootPath === normalizedText) ?? null;
+  const exactPathMatch = workspaces.find((workspace) => normalizeWorkspaceToken(workspace.rootPath) === normalizedText);
+  if (exactPathMatch) {
+    return { kind: "selected", workspace: exactPathMatch };
+  }
+
+  const exactLabelMatches = workspaces.filter((workspace) => normalizeWorkspaceToken(workspace.label) === normalizedText);
+  if (exactLabelMatches.length === 1) {
+    return { kind: "selected", workspace: exactLabelMatches[0]! };
+  }
+  if (exactLabelMatches.length > 1) {
+    return { kind: "ambiguous", matches: exactLabelMatches.slice(0, LARK_WORKSPACE_LIST_LIMIT) };
+  }
+
+  const fuzzyMatches = workspaces.filter((workspace) => {
+    const label = normalizeWorkspaceToken(workspace.label);
+    const rootPath = normalizeWorkspaceToken(workspace.rootPath);
+    return label.includes(normalizedText) || rootPath.includes(normalizedText);
+  });
+  if (fuzzyMatches.length === 1) {
+    return { kind: "selected", workspace: fuzzyMatches[0]! };
+  }
+  if (fuzzyMatches.length > 1) {
+    return { kind: "ambiguous", matches: fuzzyMatches.slice(0, LARK_WORKSPACE_LIST_LIMIT) };
+  }
+
+  return { kind: "missing" };
 }
 
 function formatAgentPrompt(): string {
@@ -428,11 +468,28 @@ function formatExactAgentPrompt(): string {
 }
 
 function formatWorkspacePrompt(workspaces: SelectableWorkspace[]): string {
-  const lines = workspaces.map((workspace, index) => `${index + 1}. ${workspace.label} (${workspace.rootPath})`);
-  return `Choose workspace:\n${lines.join("\n")}\nReply with one exact number.`;
+  const visibleWorkspaces = workspaces.slice(0, LARK_WORKSPACE_LIST_LIMIT);
+  const lines = visibleWorkspaces.map((workspace, index) => `${index + 1}. ${workspace.label} (${workspace.rootPath})`);
+
+  if (workspaces.length <= LARK_WORKSPACE_LIST_LIMIT) {
+    return `Choose workspace:\n${lines.join("\n")}\nReply with one exact number or an exact path.`;
+  }
+
+  const remainingCount = workspaces.length - visibleWorkspaces.length;
+  return `Choose workspace:\n${lines.join("\n")}\n...and ${remainingCount} more.\nReply with a number from this list, an exact path, or a unique label fragment.`;
 }
 
-function formatExactWorkspacePrompt(workspaces: SelectableWorkspace[]): string {
+function formatWorkspaceRetryPrompt(
+  workspaces: SelectableWorkspace[],
+  selection:
+    | { kind: "missing" }
+    | { kind: "ambiguous"; matches: SelectableWorkspace[] }
+): string {
+  if (selection.kind === "ambiguous") {
+    const matchLines = selection.matches.map((workspace) => `- ${workspace.label} (${workspace.rootPath})`);
+    return `Workspace is ambiguous.\nMatches:\n${matchLines.join("\n")}\nReply with an exact path or a more specific label fragment.`;
+  }
+
   return `Invalid workspace.\n${formatWorkspacePrompt(workspaces)}`;
 }
 
@@ -488,8 +545,16 @@ function formatLarkResultStatus(result: LarkResult): string {
   return "Completed";
 }
 
-function formatLarkStartHint(): string {
+function formatLarkStartHint(args: { inThread: boolean }): string {
+  if (args.inThread) {
+    return "This thread is not bound to an active session.\nSend `start` as a new root message to create one, then continue in that thread.";
+  }
+
   return "Send `start` as a new root message.\nThen continue in the thread.";
+}
+
+function normalizeWorkspaceToken(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 function formatLarkError(error: unknown): string {

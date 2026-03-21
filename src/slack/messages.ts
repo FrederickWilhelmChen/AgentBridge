@@ -28,7 +28,7 @@ export function buildExecutionBlocks(args: {
     type: "button",
     text: {
       type: "plain_text",
-      text: "Open Console"
+      text: "New Session"
     },
     action_id: "open_console_button",
     value: args.run.agentType
