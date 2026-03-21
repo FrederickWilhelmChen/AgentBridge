@@ -17,8 +17,8 @@ Doctor checks:
 
 - 数据库路径  
   Database path.
-- 允许的工作目录  
-  Allowed working directories.
+- workspace 配置  
+  Workspace configuration.
 - 代理状态  
   Proxy status.
 - Claude 是否可达  
@@ -64,8 +64,8 @@ Important Claude-specific warning:
 常见原因：  
 Common causes:
 
-- `AGENTBRIDGE_ALLOWED_CWDS` 为空  
-  `AGENTBRIDGE_ALLOWED_CWDS` is empty.
+- `AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS` 和 `AGENTBRIDGE_MANUAL_WORKSPACES` 都为空  
+  `AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS` and `AGENTBRIDGE_MANUAL_WORKSPACES` are both empty.
 - 启用了 `slack`，但 Slack 凭据没有填  
   `slack` is enabled but Slack credentials are missing.
 - 启用了 `lark`，但 Lark 凭据没有填  
@@ -83,7 +83,29 @@ Fix strategy:
 - 再按需启用第二个平台  
   Then enable the second platform if needed.
 
-## 4. 代理问题 / Proxy Problems
+## 4. Git 不可用 / Git Is Not Available
+
+典型现象：  
+Typical symptoms:
+
+- `doctor` 明确提示 Git 不可用  
+  `doctor` explicitly reports that Git is unavailable.
+- repo discovery 被关闭  
+  Repo discovery is disabled.
+- worktree 相关能力不可用  
+  Worktree-related features are unavailable.
+
+说明：  
+Notes:
+
+- 这不是致命错误  
+  This is not a fatal error.
+- plain workspace 仍然可以正常使用  
+  Plain workspaces still work normally.
+- 如果你本来就不处理 Git repo，可以忽略这一项  
+  If you do not work with Git repos, you can ignore this.
+
+## 5. 代理问题 / Proxy Problems
 
 典型现象：  
 Typical symptoms:
@@ -113,7 +135,7 @@ Important:
 - 不要因为 `.env.example` 里有这些字段就机械地填写  
   Do not fill them just because they exist in `.env.example`.
 
-## 5. Slack 无响应 / Slack Does Not Respond
+## 6. Slack 无响应 / Slack Does Not Respond
 
 优先检查这些项：  
 Check these first:
@@ -140,7 +162,7 @@ See the full checklist in:
 
 - [platforms/slack.md](platforms/slack.md)
 
-## 6. 飞书无响应 / Feishu / Lark Does Not Respond
+## 7. 飞书无响应 / Feishu / Lark Does Not Respond
 
 优先检查这些项：  
 Check these first:
@@ -161,7 +183,7 @@ See the normal topic-mode flow in:
 
 - [platforms/lark.md](platforms/lark.md)
 
-## 7. 重要：飞书机器人冲突 / Very Important: Shared Feishu Bot Conflict
+## 8. 重要：飞书机器人冲突 / Very Important: Shared Feishu Bot Conflict
 
 不要把同一个飞书机器人同时连接给 AgentBridge 和 OpenClaw。  
 Do not connect the same Feishu bot to both AgentBridge and OpenClaw at the same time.
@@ -189,7 +211,7 @@ Practical rule:
 这不是小概率边角问题，而是会直接打乱消息接收体验。  
 This is not a minor edge case. It can completely break message delivery expectations.
 
-## 8. 飞书共享卡片不回写 / Feishu Progress Card Does Not Update
+## 9. 飞书共享卡片不回写 / Feishu Progress Card Does Not Update
 
 优先检查：  
 Check:
@@ -206,7 +228,7 @@ Check:
 如果工作已经完成，但卡片还停留在处理中，重点看 Lark 更新步骤附近的运行日志。  
 If the work finished but the card stayed in processing, inspect runtime logs around the Lark update step.
 
-## 9. 当前实现边界 / Known Product Limits
+## 10. 当前实现边界 / Known Product Limits
 
 这些是当前边界，不一定是 bug：  
 These are current limits, not necessarily bugs:
@@ -215,10 +237,12 @@ These are current limits, not necessarily bugs:
   Output is still final-result oriented, not fully streaming.
 - `interrupt` 只影响当前 AgentBridge 进程发起的工作  
   `interrupt` only affects work launched by the current AgentBridge process.
+- Git workspace 的 managed worktree 已经支持，但平台侧还没有完整的 context 切换界面  
+  Managed worktrees for Git workspaces are supported, but the platform-side context switching UX is still limited.
 - 当前访问控制仍偏向单用户本地自托管  
   Access control is still optimized for local single-user scenarios.
 
-## 10. 建议排障顺序 / Suggested Debug Order
+## 11. 建议排障顺序 / Suggested Debug Order
 
 1. 运行 `npm run doctor`  
    Run `npm run doctor`.
@@ -228,8 +252,8 @@ These are current limits, not necessarily bugs:
    Validate local Claude / Codex CLI directly.
 4. 检查平台凭据  
    Validate platform credentials.
-5. 检查允许的工作目录  
-   Validate allowed working directories.
+5. 检查 workspace 配置与 Git 可用性  
+   Validate workspace configuration and Git availability.
 6. 检查平台事件投递  
    Validate platform event delivery.
 7. 最后再查更高层的 session 行为  

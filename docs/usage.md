@@ -40,8 +40,8 @@ After startup, AgentBridge will:
 
 - 从根消息开始，例如 `start` 或 `@Bot start`  
   Start from a root message such as `start` or `@Bot start`.
-- 初始化阶段只选择一次 agent 和 cwd  
-  Agent and cwd are selected once during setup.
+- 初始化阶段只选择一次 agent 和 workspace  
+  Agent and workspace are selected once during setup.
 - 初始化完成后继续在同一个话题里交流  
   After setup, continue in the same topic.
 - 这个话题本身就是持续会话入口  
@@ -57,8 +57,8 @@ After startup, AgentBridge will:
   One Slack thread equals one session.
 - thread 内的 `agent` 固定  
   `agent` is fixed inside the thread.
-- thread 内的 `cwd` 固定  
-  `cwd` is fixed inside the thread.
+- thread 内的 `workspace` 固定，而当前执行 context 可能变化  
+  `workspace` is fixed inside the thread, while the current execution context may change.
 - 后续都在同一个 thread 里继续  
   Follow-up messages continue in the same thread.
 
@@ -80,15 +80,15 @@ Incoming messages are roughly handled in three categories:
 除了显式初始化流程和中断指令之外，普通文本都会被当作正常 prompt 处理。  
 Outside explicit setup flows and interruption commands, regular text is treated as a normal prompt.
 
-## 4. Agent 与工作目录选择 / Agent And CWD Selection
+## 4. Agent 与 Workspace 选择 / Agent And Workspace Selection
 
 选择方式取决于平台：  
 Selection depends on the platform flow:
 
-- Slack：在创建 thread 的 modal 中选择  
-  Slack: selected in the modal when the thread is created.
-- Feishu / Lark：在话题初始化流程里选择  
-  Feishu / Lark: selected during topic setup.
+- Slack：在创建 thread 的 modal 中选择 workspace  
+  Slack: select the workspace in the thread-creation modal.
+- Feishu / Lark：在话题初始化流程里选择 workspace  
+  Feishu / Lark: select the workspace during topic setup.
 - 其他情况下使用 `AGENTBRIDGE_DEFAULT_AGENT` 兜底  
   Otherwise, `AGENTBRIDGE_DEFAULT_AGENT` is used as fallback.
 
@@ -97,10 +97,10 @@ Important:
 
 - Slack 不允许在同一个 thread 里切换 agent  
   Slack does not expect agent switching inside the same thread.
-- Feishu 初始化是先选 agent，再选 cwd  
-  Feishu setup chooses the agent first, then the cwd.
-- 初始化完成后，两边都不允许在同一会话里切换 agent 或 cwd  
-  After setup, neither platform expects agent or cwd switching inside the same session.
+- Feishu 初始化是先选 agent，再选 workspace  
+  Feishu setup chooses the agent first, then the workspace.
+- 初始化完成后，两边都不允许在同一会话里切换 agent 或 workspace  
+  After setup, neither platform expects agent or workspace switching inside the same session.
 
 ## 5. 会话模型 / Session Model
 
@@ -115,20 +115,21 @@ In practice:
 - Feishu / Lark 把 session 绑定到话题 / thread 上下文  
   Feishu / Lark binds the session to the topic/thread context.
 
-## 6. 工作目录 / Working Directory
+## 6. Workspace 与 Context / Workspace And Context
 
-所有执行都必须落在 `AGENTBRIDGE_ALLOWED_CWDS` 里。  
-All execution must stay inside `AGENTBRIDGE_ALLOWED_CWDS`.
+AgentBridge 现在区分两层概念：  
+AgentBridge now separates two concepts:
 
-这意味着：  
-That means:
+- `workspace`：用户在平台上选择的顶层工作区  
+  `workspace`: the top-level work area selected by the user.
+- `execution context`：实际运行命令的目录  
+  `execution context`: the actual directory where the command runs.
 
-- 目标 cwd 必须在白名单内  
-  The target cwd must be whitelisted.
-- 初始化流程只能从已允许目录中选择  
-  Setup flows must choose from known allowed directories.
-- 一旦 session 初始化完成，cwd 在该 session 内保持固定  
-  Once a session is initialized, the cwd stays fixed in that session.
+对于 plain workspace，`execution context` 通常就是 workspace 根目录。  
+For plain workspaces, the execution context is usually the workspace root.
+
+对于 Git workspace，`execution context` 可以是主目录，也可以是 linked worktree。  
+For Git workspaces, the execution context can be the main checkout or a linked worktree.
 
 ## 7. 图片 / Images
 
@@ -182,19 +183,19 @@ Feishu / Lark:
    Send `@Bot start`.
 2. 选择 `claude` 或 `codex`  
    Choose `claude` or `codex`.
-3. 选择 cwd  
-   Choose cwd.
-4. 然后在同一个话题里继续，不再切换 agent 或 cwd  
-   Continue in the same topic without changing agent or cwd.
+3. 选择 workspace  
+   Choose the workspace.
+4. 然后在同一个话题里继续，不再切换 agent 或 workspace  
+   Continue in the same topic without changing agent or workspace.
 
 Slack:
 
 1. 打开全局 shortcut  
    Open the global shortcut.
-2. 在 modal 中选择 agent、cwd 和 opening message  
-   Choose agent, cwd, and opening message in the modal.
-3. 在创建出来的 thread 里继续，不再切换 agent 或 cwd  
-   Continue inside the created thread without changing agent or cwd.
+2. 在 modal 中选择 agent、workspace 和 opening message  
+   Choose agent, workspace, and the opening message in the modal.
+3. 在创建出来的 thread 里继续，不再切换 agent 或 workspace  
+   Continue inside the created thread without changing agent or workspace.
 
 ## 11. 相关文档 / Related Docs
 

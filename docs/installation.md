@@ -40,8 +40,8 @@ The installer is the recommended entry point because it will:
   Node.js 20+ is required.
 - 需要本机可用的 Claude Code CLI 和/或 Codex CLI  
   A working local Claude Code CLI and/or Codex CLI is required.
-- 至少要有一个允许使用的工作目录  
-  You need at least one allowed working directory.
+- 至少要有一个 workspace 来源  
+  You need at least one workspace source.
 - 至少要接入一个平台应用  
   You need at least one platform app.
   - Slack
@@ -85,7 +85,7 @@ cp .env.example .env
 The minimum common settings are:
 
 - `AGENTBRIDGE_ENABLED_PLATFORMS`
-- `AGENTBRIDGE_ALLOWED_CWDS`
+- `AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS` 和/或 `AGENTBRIDGE_MANUAL_WORKSPACES`
 - `AGENTBRIDGE_DEFAULT_AGENT`
 
 然后再填写你实际使用的平台凭据。  
@@ -186,14 +186,16 @@ Doctor checks:
 
 - 数据库路径  
   Database path.
-- 允许的工作目录  
-  Allowed working directories.
+- workspace 配置  
+  Workspace configuration.
 - 代理状态  
   Proxy status.
 - Claude 是否可达  
   Whether Claude is reachable.
 - Codex 是否可达  
   Whether Codex is reachable.
+- Git 是否可用，以及是否进入 plain-workspace 降级模式  
+  Whether Git is available, and whether doctor has fallen back to plain-workspace mode.
 
 ## 启动服务 / Start The Service
 
