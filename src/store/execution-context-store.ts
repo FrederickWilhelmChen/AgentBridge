@@ -62,10 +62,16 @@ export class ExecutionContextStore {
     return context;
   }
 
-  public findById(contextId: string): ExecutionContext | null {
+  private findRowById(contextId: string): ExecutionContextRow | null {
     const row = this.database
       .prepare("SELECT * FROM execution_contexts WHERE context_id = ?")
       .get(contextId) as ExecutionContextRow | undefined;
+
+    return row ?? null;
+  }
+
+  public findById(contextId: string): ExecutionContext | null {
+    const row = this.findRowById(contextId);
 
     return row ? mapExecutionContext(row) : null;
   }
@@ -79,6 +85,23 @@ export class ExecutionContextStore {
   }
 
   public update(context: ExecutionContext): ExecutionContext {
+    const existing = this.findRowById(context.contextId);
+    if (!existing) {
+      throw new Error(`Execution context ${context.contextId} does not exist`);
+    }
+
+    if (existing.workspace_id !== context.workspaceId) {
+      throw new Error(
+        `Execution context ${context.contextId} workspaceId cannot change from ${existing.workspace_id} to ${context.workspaceId}`
+      );
+    }
+
+    if (existing.created_at !== context.createdAt) {
+      throw new Error(
+        `Execution context ${context.contextId} createdAt cannot change from ${existing.created_at} to ${context.createdAt}`
+      );
+    }
+
     const result = this.database
       .prepare(`
         UPDATE execution_contexts
