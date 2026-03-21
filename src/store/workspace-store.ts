@@ -81,7 +81,6 @@ export class WorkspaceStore {
             source = @source,
             git_capable = @gitCapable,
             worktree_capable = @worktreeCapable,
-            created_at = @createdAt,
             updated_at = @updatedAt,
             last_used_at = @lastUsedAt
         WHERE workspace_id = @workspaceId
@@ -93,11 +92,11 @@ export class WorkspaceStore {
         source: workspace.source,
         gitCapable: workspace.capabilities.gitCapable ? 1 : 0,
         worktreeCapable: workspace.capabilities.worktreeCapable ? 1 : 0,
-        createdAt: workspace.createdAt,
         updatedAt: workspace.updatedAt,
         lastUsedAt: workspace.lastUsedAt
       });
 
-    return workspace;
+    const updated = this.findById(workspace.workspaceId);
+    return updated ?? workspace;
   }
 }

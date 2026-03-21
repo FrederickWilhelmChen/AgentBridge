@@ -1,8 +1,141 @@
 import Database from "better-sqlite3";
+import type { Database as SqliteDatabase } from "better-sqlite3";
+
+type TableColumn = { name: string };
+type ForeignKeyRow = {
+  table: string;
+  from: string;
+  to: string;
+};
+
+function getTableColumns(database: SqliteDatabase, tableName: string): TableColumn[] {
+  return database.prepare(`PRAGMA table_info(${tableName})`).all() as TableColumn[];
+}
+
+function hasColumn(database: SqliteDatabase, tableName: string, columnName: string): boolean {
+  return getTableColumns(database, tableName).some((column) => column.name === columnName);
+}
+
+function hasForeignKey(
+  database: SqliteDatabase,
+  tableName: string,
+  foreignTable: string,
+  fromColumn: string,
+  toColumn: string
+): boolean {
+  const foreignKeys = database.prepare(`PRAGMA foreign_key_list(${tableName})`).all() as ForeignKeyRow[];
+
+  return foreignKeys.some(
+    (foreignKey) =>
+      foreignKey.table === foreignTable &&
+      foreignKey.from === fromColumn &&
+      foreignKey.to === toColumn
+  );
+}
+
+function rebuildExecutionContextTable(database: SqliteDatabase) {
+  const legacyColumns = getTableColumns(database, "execution_contexts").map((column) => column.name);
+  database.exec(`
+    ALTER TABLE execution_contexts RENAME TO execution_contexts_legacy;
+
+    CREATE TABLE execution_contexts (
+      context_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id),
+      kind TEXT NOT NULL,
+      path TEXT NOT NULL,
+      managed INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      branch TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  const selectExpressions = [
+    legacyColumns.includes("context_id") ? "context_id" : "NULL",
+    legacyColumns.includes("workspace_id") ? "workspace_id" : "''",
+    legacyColumns.includes("kind") ? "COALESCE(kind, 'main')" : "'main'",
+    legacyColumns.includes("path") ? "COALESCE(path, '')" : "''",
+    legacyColumns.includes("managed") ? "COALESCE(managed, 0)" : "0",
+    legacyColumns.includes("status") ? "COALESCE(status, 'active')" : "'active'",
+    legacyColumns.includes("branch") ? "branch" : "NULL",
+    legacyColumns.includes("created_at") ? "COALESCE(created_at, '')" : "''",
+    legacyColumns.includes("updated_at") ? "COALESCE(updated_at, '')" : "''"
+  ];
+
+  database.exec(`
+    INSERT INTO execution_contexts (
+      context_id, workspace_id, kind, path, managed, status, branch, created_at, updated_at
+    )
+    SELECT
+      ${selectExpressions.join(",\n      ")}
+    FROM execution_contexts_legacy
+    WHERE workspace_id IS NOT NULL
+      AND EXISTS (
+        SELECT 1
+        FROM workspaces
+        WHERE workspaces.workspace_id = execution_contexts_legacy.workspace_id
+      );
+
+    DROP TABLE execution_contexts_legacy;
+  `);
+}
+
+function ensureExecutionContextTable(database: SqliteDatabase) {
+  const executionContextColumns = getTableColumns(database, "execution_contexts");
+  if (executionContextColumns.length === 0) {
+    return;
+  }
+
+  const hasWorkspaceForeignKey = hasForeignKey(
+    database,
+    "execution_contexts",
+    "workspaces",
+    "workspace_id",
+    "workspace_id"
+  );
+
+  if (!hasWorkspaceForeignKey) {
+    rebuildExecutionContextTable(database);
+  }
+
+  if (!hasColumn(database, "execution_contexts", "workspace_id")) {
+    database.exec("ALTER TABLE execution_contexts ADD COLUMN workspace_id TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (!hasColumn(database, "execution_contexts", "kind")) {
+    database.exec("ALTER TABLE execution_contexts ADD COLUMN kind TEXT NOT NULL DEFAULT 'main'");
+  }
+
+  if (!hasColumn(database, "execution_contexts", "path")) {
+    database.exec("ALTER TABLE execution_contexts ADD COLUMN path TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (!hasColumn(database, "execution_contexts", "managed")) {
+    database.exec("ALTER TABLE execution_contexts ADD COLUMN managed INTEGER NOT NULL DEFAULT 0");
+  }
+
+  if (!hasColumn(database, "execution_contexts", "status")) {
+    database.exec("ALTER TABLE execution_contexts ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
+  }
+
+  if (!hasColumn(database, "execution_contexts", "branch")) {
+    database.exec("ALTER TABLE execution_contexts ADD COLUMN branch TEXT");
+  }
+
+  if (!hasColumn(database, "execution_contexts", "created_at")) {
+    database.exec("ALTER TABLE execution_contexts ADD COLUMN created_at TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (!hasColumn(database, "execution_contexts", "updated_at")) {
+    database.exec("ALTER TABLE execution_contexts ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''");
+  }
+}
 
 export function createDatabase(dbPath: string) {
   const database = new Database(dbPath);
   database.pragma("journal_mode = WAL");
+  database.pragma("foreign_keys = ON");
 
   database.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
@@ -63,7 +196,7 @@ export function createDatabase(dbPath: string) {
 
     CREATE TABLE IF NOT EXISTS execution_contexts (
       context_id TEXT PRIMARY KEY,
-      workspace_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id),
       kind TEXT NOT NULL,
       path TEXT NOT NULL,
       managed INTEGER NOT NULL,
@@ -128,13 +261,11 @@ export function createDatabase(dbPath: string) {
             WHEN platform_channel_id = '' THEN slack_channel_id
             ELSE platform_channel_id
           END,
-      platform_thread_id = COALESCE(platform_thread_id, slack_thread_ts)
+          platform_thread_id = COALESCE(platform_thread_id, slack_thread_ts)
     `);
   }
 
-  const workspaceColumns = database
-    .prepare("PRAGMA table_info(workspaces)")
-    .all() as Array<{ name: string }>;
+  const workspaceColumns = getTableColumns(database, "workspaces");
 
   if (!workspaceColumns.some((column) => column.name === "root_path")) {
     database.exec("ALTER TABLE workspaces ADD COLUMN root_path TEXT NOT NULL DEFAULT ''");
@@ -168,41 +299,7 @@ export function createDatabase(dbPath: string) {
     database.exec("ALTER TABLE workspaces ADD COLUMN last_used_at TEXT");
   }
 
-  const executionContextColumns = database
-    .prepare("PRAGMA table_info(execution_contexts)")
-    .all() as Array<{ name: string }>;
-
-  if (!executionContextColumns.some((column) => column.name === "workspace_id")) {
-    database.exec("ALTER TABLE execution_contexts ADD COLUMN workspace_id TEXT NOT NULL DEFAULT ''");
-  }
-
-  if (!executionContextColumns.some((column) => column.name === "kind")) {
-    database.exec("ALTER TABLE execution_contexts ADD COLUMN kind TEXT NOT NULL DEFAULT 'main'");
-  }
-
-  if (!executionContextColumns.some((column) => column.name === "path")) {
-    database.exec("ALTER TABLE execution_contexts ADD COLUMN path TEXT NOT NULL DEFAULT ''");
-  }
-
-  if (!executionContextColumns.some((column) => column.name === "managed")) {
-    database.exec("ALTER TABLE execution_contexts ADD COLUMN managed INTEGER NOT NULL DEFAULT 0");
-  }
-
-  if (!executionContextColumns.some((column) => column.name === "status")) {
-    database.exec("ALTER TABLE execution_contexts ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
-  }
-
-  if (!executionContextColumns.some((column) => column.name === "branch")) {
-    database.exec("ALTER TABLE execution_contexts ADD COLUMN branch TEXT");
-  }
-
-  if (!executionContextColumns.some((column) => column.name === "created_at")) {
-    database.exec("ALTER TABLE execution_contexts ADD COLUMN created_at TEXT NOT NULL DEFAULT ''");
-  }
-
-  if (!executionContextColumns.some((column) => column.name === "updated_at")) {
-    database.exec("ALTER TABLE execution_contexts ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''");
-  }
+  ensureExecutionContextTable(database);
 
   return database;
 }

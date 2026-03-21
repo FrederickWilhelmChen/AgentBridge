@@ -31,6 +31,14 @@ export class ExecutionContextStore {
   public constructor(private readonly database: Database) {}
 
   public create(context: ExecutionContext): ExecutionContext {
+    const workspaceExists = this.database
+      .prepare("SELECT 1 FROM workspaces WHERE workspace_id = ?")
+      .get(context.workspaceId);
+
+    if (!workspaceExists) {
+      throw new Error(`Workspace ${context.workspaceId} does not exist`);
+    }
+
     this.database
       .prepare(`
         INSERT INTO execution_contexts (
@@ -74,28 +82,25 @@ export class ExecutionContextStore {
     this.database
       .prepare(`
         UPDATE execution_contexts
-        SET workspace_id = @workspaceId,
-            kind = @kind,
+        SET kind = @kind,
             path = @path,
             managed = @managed,
             status = @status,
             branch = @branch,
-            created_at = @createdAt,
             updated_at = @updatedAt
         WHERE context_id = @contextId
       `)
       .run({
         contextId: context.contextId,
-        workspaceId: context.workspaceId,
         kind: context.kind,
         path: context.path,
         managed: context.managed ? 1 : 0,
         status: context.status,
         branch: context.branch,
-        createdAt: context.createdAt,
         updatedAt: context.updatedAt
       });
 
-    return context;
+    const updated = this.findById(context.contextId);
+    return updated ?? context;
   }
 }
