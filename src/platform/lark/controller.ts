@@ -30,7 +30,11 @@ export function createLarkController(
   });
   const messageHandler = createLarkMessageHandler({
     allowedUserId: larkConfig.allowedUserId,
-    allowedCwds: config.runtime.allowedCwds,
+    allowedWorkspaces: agentBridgeService.listSelectableWorkspaces?.() ?? config.runtime.allowedCwds.map((cwd) => ({
+      rootPath: cwd,
+      label: cwd,
+      kind: "plain_dir"
+    })),
     agentBridgeService,
     client,
     logger,

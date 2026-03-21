@@ -2,11 +2,12 @@ import type { AppConfig } from "../app/config.js";
 import type { AgentType } from "../domain/enums.js";
 import type { Run, Session } from "../domain/models.js";
 import { parseIntent } from "../intent/intent-router.js";
-import type { IncomingPlatformMessage, MessageHandlingResult } from "../platform/types.js";
+import type { IncomingPlatformMessage, MessageHandlingResult, SelectableWorkspace } from "../platform/types.js";
 import { buildResumeProfile, buildRunOnceProfile } from "../runtime/agents.js";
 import { RuntimeLocks } from "../runtime/locks.js";
 import { ProcessManager } from "../runtime/process-manager.js";
 import { SessionService } from "./session-service.js";
+import path from "node:path";
 
 export type RunExecutionResult = {
   run: Run;
@@ -293,6 +294,23 @@ export class AgentBridgeService {
 
   public switchSessionContext(sessionId: string, contextId: string): Session {
     return this.sessionService.switchExecutionContext(sessionId, contextId);
+  }
+
+  public listSelectableWorkspaces(): SelectableWorkspace[] {
+    const workspaces = this.sessionService.listWorkspaces();
+    if (workspaces.length > 0) {
+      return workspaces.map((workspace) => ({
+        rootPath: workspace.rootPath,
+        label: path.basename(workspace.rootPath) || workspace.rootPath,
+        kind: workspace.kind
+      }));
+    }
+
+    return this.config.runtime.allowedCwds.map((cwd) => ({
+      rootPath: cwd,
+      label: path.basename(cwd) || cwd,
+      kind: "plain_dir"
+    }));
   }
 
   public interruptRun(runId: string): boolean {

@@ -334,7 +334,7 @@ test("lark handler asks the user to send start before using root messages", asyn
   assert.match(JSON.parse(replies[0]?.content.content ?? "{}").text ?? "", /send `start`/i);
 });
 
-test("lark handler requires an exact agent choice before moving to cwd selection", async () => {
+test("lark handler requires an exact agent choice before moving to workspace selection", async () => {
   const replies: any[] = [];
 
   const handler = createLarkEventHandler({
@@ -417,10 +417,10 @@ test("lark handler requires an exact agent choice before moving to cwd selection
   });
 
   assert.match(JSON.parse(replies[1]?.content.content ?? "{}").text ?? "", /exactly `codex` or `claude`/i);
-  assert.match(JSON.parse(replies[2]?.content.content ?? "{}").text ?? "", /choose cwd/i);
+  assert.match(JSON.parse(replies[2]?.content.content ?? "{}").text ?? "", /choose workspace/i);
 });
 
-test("lark handler initializes the thread after exact agent and cwd selection", async () => {
+test("lark handler initializes the thread after exact agent and workspace selection", async () => {
   const replies: any[] = [];
   const createdSessions: any[] = [];
 
@@ -512,7 +512,7 @@ test("lark handler initializes the thread after exact agent and cwd selection", 
     channelId: "oc_123",
     threadId: "om_start_init"
   });
-  assert.match(JSON.parse(replies[2]?.content.content ?? "{}").text ?? "", /initialized/i);
+  assert.match(JSON.parse(replies[2]?.content.content ?? "{}").text ?? "", /workspace:/i);
 });
 
 test("lark handler continues topic-mode replies keyed by thread_id even without root_id", async () => {

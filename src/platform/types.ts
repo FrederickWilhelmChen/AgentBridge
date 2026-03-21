@@ -1,6 +1,13 @@
 import type { Run, Session } from "../domain/models.js";
+import type { WorkspaceKind } from "../domain/enums.js";
 
 export type Platform = "slack" | "lark";
+
+export type SelectableWorkspace = {
+  rootPath: string;
+  label: string;
+  kind: WorkspaceKind;
+};
 
 export type IncomingImageAttachment = {
   kind: "image";

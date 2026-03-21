@@ -3,7 +3,7 @@ import type { AgentType } from "../../domain/enums.js";
 import type { Session } from "../../domain/models.js";
 import type { ImageCache } from "../../runtime/image-cache.js";
 import type { InboundMessageStore } from "../../store/inbound-message-store.js";
-import type { IncomingImageAttachment } from "../types.js";
+import type { IncomingImageAttachment, SelectableWorkspace } from "../types.js";
 import { buildLarkTextMessage } from "./messages.js";
 
 type LarkRawEnvelope = {
@@ -40,10 +40,11 @@ type LarkResult =
 
 type PendingThreadSetup =
   | { stage: "choose_agent" }
-  | { stage: "choose_cwd"; agentType: AgentType };
+  | { stage: "choose_workspace"; agentType: AgentType };
 
 type HandlerArgs = {
   allowedUserId: string;
+  allowedWorkspaces?: SelectableWorkspace[];
   allowedCwds?: string[];
   agentBridgeService: {
     handleIncomingMessage?(message: {
@@ -69,6 +70,7 @@ type HandlerArgs = {
       platformChannelId: string,
       platformThreadId: string
     ): { sessionId: string; agentType: AgentType; cwd: string };
+    listSelectableWorkspaces?(): SelectableWorkspace[];
     interruptRun?(runId: string): boolean;
   };
   client: {
@@ -257,17 +259,24 @@ export function createLarkMessageHandler(
         }
 
         pendingThreadSetups.set(setupKey, {
-          stage: "choose_cwd",
+          stage: "choose_workspace",
           agentType
         });
-        await args.client.replyToMessage(messageId, buildLarkTextMessage(formatCwdPrompt(args.allowedCwds ?? [])));
+        await args.client.replyToMessage(
+          messageId,
+          buildLarkTextMessage(formatWorkspacePrompt(getSelectableWorkspaces(args)))
+        );
         args.messageDeduper?.markCompleted("lark", messageId);
         return;
       }
 
-      const selectedCwd = resolveCwdChoice(normalizedText, args.allowedCwds ?? []);
-      if (!selectedCwd) {
-        await args.client.replyToMessage(messageId, buildLarkTextMessage(formatExactCwdPrompt(args.allowedCwds ?? [])));
+      const workspaces = getSelectableWorkspaces(args);
+      const selectedWorkspace = resolveWorkspaceChoice(normalizedText, workspaces);
+      if (!selectedWorkspace) {
+        await args.client.replyToMessage(
+          messageId,
+          buildLarkTextMessage(formatExactWorkspacePrompt(workspaces))
+        );
         args.messageDeduper?.markCompleted("lark", messageId);
         return;
       }
@@ -278,14 +287,17 @@ export function createLarkMessageHandler(
 
       const session = args.agentBridgeService.createOrResetPersistentSession(
         pendingSetup.agentType,
-        selectedCwd,
+        selectedWorkspace.rootPath,
         "lark",
         userId,
         chatId,
         threadId
       );
       pendingThreadSetups.delete(setupKey);
-      await args.client.replyToMessage(messageId, buildLarkTextMessage(formatInitializedReply(session)));
+      await args.client.replyToMessage(
+        messageId,
+        buildLarkTextMessage(formatInitializedReply(session, selectedWorkspace.rootPath))
+      );
       args.messageDeduper?.markCompleted("lark", messageId);
     } catch (error) {
       args.messageDeduper?.release("lark", messageId);
@@ -398,13 +410,13 @@ function normalizeAgentChoice(normalizedText: string): AgentType | null {
   return null;
 }
 
-function resolveCwdChoice(normalizedText: string, allowedCwds: string[]): string | null {
+function resolveWorkspaceChoice(normalizedText: string, workspaces: SelectableWorkspace[]): SelectableWorkspace | null {
   const index = Number(normalizedText);
-  if (Number.isInteger(index) && index >= 1 && index <= allowedCwds.length) {
-    return allowedCwds[index - 1] ?? null;
+  if (Number.isInteger(index) && index >= 1 && index <= workspaces.length) {
+    return workspaces[index - 1] ?? null;
   }
 
-  return allowedCwds.find((cwd) => cwd === normalizedText) ?? null;
+  return workspaces.find((workspace) => workspace.rootPath === normalizedText) ?? null;
 }
 
 function formatAgentPrompt(): string {
@@ -415,17 +427,36 @@ function formatExactAgentPrompt(): string {
   return "Invalid agent.\nReply with exactly `codex` or `claude`.";
 }
 
-function formatCwdPrompt(allowedCwds: string[]): string {
-  const lines = allowedCwds.map((cwd, index) => `${index + 1}. ${cwd}`);
-  return `Choose cwd:\n${lines.join("\n")}\nReply with one exact number.`;
+function formatWorkspacePrompt(workspaces: SelectableWorkspace[]): string {
+  const lines = workspaces.map((workspace, index) => `${index + 1}. ${workspace.label} (${workspace.rootPath})`);
+  return `Choose workspace:\n${lines.join("\n")}\nReply with one exact number.`;
 }
 
-function formatExactCwdPrompt(allowedCwds: string[]): string {
-  return `Invalid cwd.\n${formatCwdPrompt(allowedCwds)}`;
+function formatExactWorkspacePrompt(workspaces: SelectableWorkspace[]): string {
+  return `Invalid workspace.\n${formatWorkspacePrompt(workspaces)}`;
 }
 
-function formatInitializedReply(session: { sessionId: string; agentType: AgentType; cwd: string }): string {
-  return `Initialized.\nAgent: ${session.agentType}\ncwd: ${session.cwd}\nSession: ${session.sessionId}\n\nSend prompts in this thread.\nUse \`stop\` to interrupt.`;
+function formatInitializedReply(
+  session: { sessionId: string; agentType: AgentType; cwd: string },
+  workspaceRoot: string
+): string {
+  return `Initialized.\nAgent: ${session.agentType}\nWorkspace: ${workspaceRoot}\nCurrent context: ${session.cwd}\nSession: ${session.sessionId}\n\nSend prompts in this thread.\nUse \`stop\` to interrupt.`;
+}
+
+function getSelectableWorkspaces(args: HandlerArgs): SelectableWorkspace[] {
+  if (args.allowedWorkspaces && args.allowedWorkspaces.length > 0) {
+    return args.allowedWorkspaces;
+  }
+
+  if (args.allowedCwds && args.allowedCwds.length > 0) {
+    return args.allowedCwds.map((cwd) => ({
+      rootPath: cwd,
+      label: cwd,
+      kind: "plain_dir"
+    }));
+  }
+
+  return [];
 }
 
 function formatLarkResult(result: LarkResult): string {

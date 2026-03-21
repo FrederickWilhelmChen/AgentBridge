@@ -16,7 +16,7 @@ export function buildExecutionBlocks(args: {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*${args.title}*\n*Agent:* ${args.run.agentType}\n*Session:* ${sessionLabel}\n*Status:* ${args.run.status}${args.session ? `\n*cwd:* ${args.session.cwd}` : ""}`
+        text: `*${args.title}*\n*Agent:* ${args.run.agentType}\n*Session:* ${sessionLabel}\n*Status:* ${args.run.status}${args.session ? `\n*Current context:* ${args.session.cwd}` : ""}`
       }
     },
     {
@@ -74,7 +74,7 @@ export function buildStatusBlocks(args: {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*Persistent Session Status*\n*Agent:* ${args.agentType}\n*Session:* ${args.session.sessionId}\n*State:* ${args.session.status}\n*cwd:* ${args.session.cwd}`
+        text: `*Persistent Session Status*\n*Agent:* ${args.agentType}\n*Session:* ${args.session.sessionId}\n*State:* ${args.session.status}\n*Current context:* ${args.session.cwd}`
       }
     },
     {
