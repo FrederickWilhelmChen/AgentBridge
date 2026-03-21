@@ -1,13 +1,15 @@
 import crypto from "node:crypto";
 import type { AgentType } from "../domain/enums.js";
-import type { Run, Session } from "../domain/models.js";
+import type { Run, Session, Workspace } from "../domain/models.js";
 import { RunStore } from "../store/run-store.js";
 import { SessionStore } from "../store/session-store.js";
+import { WorkspaceStore } from "../store/workspace-store.js";
 
 export class SessionService {
   public constructor(
     private readonly sessionStore: SessionStore,
-    private readonly runStore: RunStore
+    private readonly runStore: RunStore,
+    private readonly workspaceStore?: WorkspaceStore
   ) {}
 
   public createPersistentSession(
@@ -141,5 +143,38 @@ export class SessionService {
 
   public getLatestRunBySessionId(sessionId: string): Run | null {
     return this.runStore.findLatestBySessionId(sessionId);
+  }
+
+  public listWorkspaces(): Workspace[] {
+    if (!this.workspaceStore) {
+      return [];
+    }
+
+    return this.workspaceStore.list();
+  }
+
+  public findWorkspaceByRootPath(rootPath: string): Workspace | null {
+    if (!this.workspaceStore) {
+      return null;
+    }
+
+    return this.workspaceStore.list().find((workspace) => workspace.rootPath === rootPath) ?? null;
+  }
+
+  public upsertWorkspace(workspace: Workspace): Workspace {
+    if (!this.workspaceStore) {
+      throw new Error("Workspace store is not configured");
+    }
+
+    const existing = this.findWorkspaceByRootPath(workspace.rootPath);
+    if (!existing) {
+      return this.workspaceStore.create(workspace);
+    }
+
+    return this.workspaceStore.update({
+      ...workspace,
+      workspaceId: existing.workspaceId,
+      createdAt: existing.createdAt
+    });
   }
 }
