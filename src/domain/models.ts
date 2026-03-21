@@ -41,6 +41,8 @@ export type Session = {
   sessionId: string;
   agentType: AgentType;
   cwd: string;
+  workspaceId?: string | null;
+  currentContextId?: string | null;
   mode: SessionMode;
   status: SessionStatus;
   providerSessionId: string | null;

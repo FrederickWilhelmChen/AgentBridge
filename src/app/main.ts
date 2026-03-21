@@ -9,6 +9,7 @@ import { SessionStore } from "../store/session-store.js";
 import { RunStore } from "../store/run-store.js";
 import { InboundMessageStore } from "../store/inbound-message-store.js";
 import { WorkspaceStore } from "../store/workspace-store.js";
+import { ExecutionContextStore } from "../store/execution-context-store.js";
 import { SessionService } from "../services/session-service.js";
 import { WorkspaceDiscoveryService } from "../services/workspace-discovery-service.js";
 import { ProcessManager } from "../runtime/process-manager.js";
@@ -25,8 +26,14 @@ async function main() {
   const runStore = new RunStore(database);
   const inboundMessageStore = new InboundMessageStore(database);
   const workspaceStore = new WorkspaceStore(database);
+  const executionContextStore = new ExecutionContextStore(database);
 
-  const sessionService = new SessionService(sessionStore, runStore, workspaceStore);
+  const sessionService = new SessionService(
+    sessionStore,
+    runStore,
+    workspaceStore,
+    executionContextStore
+  );
   const workspaceDiscoveryService = new WorkspaceDiscoveryService(sessionService);
   const processManager = new ProcessManager(logger, {
     httpProxy: config.runtime.httpProxy,

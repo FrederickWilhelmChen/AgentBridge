@@ -264,6 +264,8 @@ export function createDatabase(dbPath: string) {
         session_id TEXT PRIMARY KEY,
         agent_type TEXT NOT NULL,
         cwd TEXT NOT NULL,
+        workspace_id TEXT,
+        current_context_id TEXT,
         mode TEXT NOT NULL,
         status TEXT NOT NULL,
         provider_session_id TEXT,
@@ -335,6 +337,14 @@ export function createDatabase(dbPath: string) {
 
     if (!sessionColumns.some((column) => column.name === "provider_session_id")) {
       database.exec("ALTER TABLE sessions ADD COLUMN provider_session_id TEXT");
+    }
+
+    if (!sessionColumns.some((column) => column.name === "workspace_id")) {
+      database.exec("ALTER TABLE sessions ADD COLUMN workspace_id TEXT");
+    }
+
+    if (!sessionColumns.some((column) => column.name === "current_context_id")) {
+      database.exec("ALTER TABLE sessions ADD COLUMN current_context_id TEXT");
     }
 
     if (!sessionColumns.some((column) => column.name === "platform")) {

@@ -5,6 +5,8 @@ type SessionRow = {
   session_id: string;
   agent_type: Session["agentType"];
   cwd: string;
+  workspace_id: string | null;
+  current_context_id: string | null;
   mode: Session["mode"];
   status: Session["status"];
   provider_session_id: string | null;
@@ -22,6 +24,8 @@ function toSessionParams(session: Session) {
     sessionId: session.sessionId,
     agentType: session.agentType,
     cwd: session.cwd,
+    workspaceId: session.workspaceId ?? null,
+    currentContextId: session.currentContextId ?? null,
     mode: session.mode,
     status: session.status,
     providerSessionId: session.providerSessionId,
@@ -40,6 +44,8 @@ function mapSession(row: SessionRow): Session {
     sessionId: row.session_id,
     agentType: row.agent_type,
     cwd: row.cwd,
+    workspaceId: row.workspace_id,
+    currentContextId: row.current_context_id,
     mode: row.mode,
     status: row.status,
     providerSessionId: row.provider_session_id,
@@ -60,9 +66,9 @@ export class SessionStore {
     this.database
       .prepare(`
         INSERT INTO sessions (
-          session_id, agent_type, cwd, mode, status, provider_session_id, platform, platform_channel_id, platform_thread_id, platform_user_id, created_at, last_active_at, last_run_id
+          session_id, agent_type, cwd, workspace_id, current_context_id, mode, status, provider_session_id, platform, platform_channel_id, platform_thread_id, platform_user_id, created_at, last_active_at, last_run_id
         ) VALUES (
-          @sessionId, @agentType, @cwd, @mode, @status, @providerSessionId, @platform, @platformChannelId, @platformThreadId, @platformUserId, @createdAt, @lastActiveAt, @lastRunId
+          @sessionId, @agentType, @cwd, @workspaceId, @currentContextId, @mode, @status, @providerSessionId, @platform, @platformChannelId, @platformThreadId, @platformUserId, @createdAt, @lastActiveAt, @lastRunId
         )
       `)
       .run(toSessionParams(session));
@@ -133,6 +139,8 @@ export class SessionStore {
       .prepare(`
         UPDATE sessions
         SET cwd = @cwd,
+            workspace_id = @workspaceId,
+            current_context_id = @currentContextId,
             status = @status,
             provider_session_id = @providerSessionId,
             platform = @platform,
