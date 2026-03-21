@@ -291,6 +291,10 @@ export class AgentBridgeService {
     return this.createOrResetPersistentSession(agentType, cwd, platform, platformUserId);
   }
 
+  public switchSessionContext(sessionId: string, contextId: string): Session {
+    return this.sessionService.switchExecutionContext(sessionId, contextId);
+  }
+
   public interruptRun(runId: string): boolean {
     return this.processManager.interrupt(runId);
   }

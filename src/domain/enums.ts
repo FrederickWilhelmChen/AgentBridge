@@ -13,10 +13,10 @@ export type WorkspaceKind = (typeof WORKSPACE_KINDS)[number];
 export const WORKSPACE_SOURCES = ["manual", "marker_file", "scanned_git"] as const;
 export type WorkspaceSource = (typeof WORKSPACE_SOURCES)[number];
 
-export const EXECUTION_CONTEXT_KINDS = ["main"] as const;
+export const EXECUTION_CONTEXT_KINDS = ["main", "worktree"] as const;
 export type ExecutionContextKind = (typeof EXECUTION_CONTEXT_KINDS)[number];
 
-export const EXECUTION_CONTEXT_STATUSES = ["active"] as const;
+export const EXECUTION_CONTEXT_STATUSES = ["active", "archived"] as const;
 export type ExecutionContextStatus = (typeof EXECUTION_CONTEXT_STATUSES)[number];
 
 export const RUN_STATUSES = [
