@@ -73,7 +73,7 @@ export class WorkspaceStore {
   }
 
   public update(workspace: Workspace): Workspace {
-    this.database
+    const result = this.database
       .prepare(`
         UPDATE workspaces
         SET root_path = @rootPath,
@@ -95,6 +95,10 @@ export class WorkspaceStore {
         updatedAt: workspace.updatedAt,
         lastUsedAt: workspace.lastUsedAt
       });
+
+    if (result.changes === 0) {
+      throw new Error(`Workspace ${workspace.workspaceId} does not exist`);
+    }
 
     const updated = this.findById(workspace.workspaceId);
     return updated ?? workspace;

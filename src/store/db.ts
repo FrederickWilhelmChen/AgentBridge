@@ -35,7 +35,10 @@ function hasForeignKey(
 
 function rebuildExecutionContextTable(database: SqliteDatabase) {
   const legacyColumns = getTableColumns(database, "execution_contexts").map((column) => column.name);
-  const hasWorkspaceId = legacyColumns.includes("workspace_id");
+  const legacyRowCount = database
+    .prepare("SELECT COUNT(*) AS count FROM execution_contexts")
+    .get() as { count: number };
+
   database.exec(`
     ALTER TABLE execution_contexts RENAME TO execution_contexts_legacy;
 
@@ -52,32 +55,55 @@ function rebuildExecutionContextTable(database: SqliteDatabase) {
     );
   `);
 
-  const selectExpressions = [
-    legacyColumns.includes("context_id") ? "context_id" : "NULL",
-    hasWorkspaceId ? "workspace_id" : "''",
-    legacyColumns.includes("kind") ? "COALESCE(kind, 'main')" : "'main'",
-    legacyColumns.includes("path") ? "COALESCE(path, '')" : "''",
-    legacyColumns.includes("managed") ? "COALESCE(managed, 0)" : "0",
-    legacyColumns.includes("status") ? "COALESCE(status, 'active')" : "'active'",
-    legacyColumns.includes("branch") ? "branch" : "NULL",
-    legacyColumns.includes("created_at") ? "COALESCE(created_at, '')" : "''",
-    legacyColumns.includes("updated_at") ? "COALESCE(updated_at, '')" : "''"
-  ];
+  if (legacyRowCount.count > 0) {
+    const missingRequiredColumns = ["context_id", "workspace_id"].filter(
+      (columnName) => !legacyColumns.includes(columnName)
+    );
 
-  if (hasWorkspaceId) {
+    if (missingRequiredColumns.length > 0) {
+      throw new Error(
+        `Cannot safely migrate execution_contexts legacy rows because required columns are missing: ${missingRequiredColumns.join(", ")}`
+      );
+    }
+
+    const orphanCount = database
+      .prepare(`
+        SELECT COUNT(*) AS count
+        FROM execution_contexts_legacy
+        WHERE workspace_id IS NULL
+          OR NOT EXISTS (
+            SELECT 1
+            FROM workspaces
+            WHERE workspaces.workspace_id = execution_contexts_legacy.workspace_id
+          )
+      `)
+      .get() as { count: number };
+
+    if (orphanCount.count > 0) {
+      throw new Error(
+        `Cannot safely migrate ${orphanCount.count} orphaned execution_context row(s) without a matching workspace`
+      );
+    }
+
+    const selectExpressions = [
+      "context_id",
+      "workspace_id",
+      legacyColumns.includes("kind") ? "COALESCE(kind, 'main')" : "'main'",
+      legacyColumns.includes("path") ? "COALESCE(path, '')" : "''",
+      legacyColumns.includes("managed") ? "COALESCE(managed, 0)" : "0",
+      legacyColumns.includes("status") ? "COALESCE(status, 'active')" : "'active'",
+      legacyColumns.includes("branch") ? "branch" : "NULL",
+      legacyColumns.includes("created_at") ? "COALESCE(created_at, '')" : "''",
+      legacyColumns.includes("updated_at") ? "COALESCE(updated_at, '')" : "''"
+    ];
+
     database.exec(`
       INSERT INTO execution_contexts (
         context_id, workspace_id, kind, path, managed, status, branch, created_at, updated_at
       )
       SELECT
-        ${selectExpressions.join(",\n      ")}
-      FROM execution_contexts_legacy
-      WHERE workspace_id IS NOT NULL
-        AND EXISTS (
-          SELECT 1
-          FROM workspaces
-          WHERE workspaces.workspace_id = execution_contexts_legacy.workspace_id
-        );
+        ${selectExpressions.join(",\n        ")}
+      FROM execution_contexts_legacy;
     `);
   }
 
@@ -140,8 +166,11 @@ export function createDatabase(dbPath: string) {
   database.pragma("journal_mode = WAL");
   database.pragma("foreign_keys = ON");
 
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS sessions (
+  try {
+    database.exec("BEGIN IMMEDIATE;");
+
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS sessions (
       session_id TEXT PRIMARY KEY,
       agent_type TEXT NOT NULL,
       cwd TEXT NOT NULL,
@@ -155,9 +184,9 @@ export function createDatabase(dbPath: string) {
       created_at TEXT NOT NULL,
       last_active_at TEXT NOT NULL,
       last_run_id TEXT
-    );
+      );
 
-    CREATE TABLE IF NOT EXISTS runs (
+      CREATE TABLE IF NOT EXISTS runs (
       run_id TEXT PRIMARY KEY,
       session_id TEXT,
       agent_type TEXT NOT NULL,
@@ -174,18 +203,18 @@ export function createDatabase(dbPath: string) {
       output_tail TEXT NOT NULL,
       raw_output TEXT NOT NULL DEFAULT '',
       error_reason TEXT
-    );
+      );
 
-    CREATE TABLE IF NOT EXISTS inbound_message_receipts (
+      CREATE TABLE IF NOT EXISTS inbound_message_receipts (
       platform TEXT NOT NULL,
       message_id TEXT NOT NULL,
       status TEXT NOT NULL,
       created_at TEXT NOT NULL,
       completed_at TEXT,
       PRIMARY KEY (platform, message_id)
-    );
+      );
 
-    CREATE TABLE IF NOT EXISTS workspaces (
+      CREATE TABLE IF NOT EXISTS workspaces (
       workspace_id TEXT PRIMARY KEY,
       root_path TEXT NOT NULL,
       kind TEXT NOT NULL,
@@ -195,9 +224,9 @@ export function createDatabase(dbPath: string) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       last_used_at TEXT
-    );
+      );
 
-    CREATE TABLE IF NOT EXISTS execution_contexts (
+      CREATE TABLE IF NOT EXISTS execution_contexts (
       context_id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id),
       kind TEXT NOT NULL,
@@ -207,104 +236,114 @@ export function createDatabase(dbPath: string) {
       branch TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
-    );
-  `);
-
-  const sessionColumns = database
-    .prepare("PRAGMA table_info(sessions)")
-    .all() as Array<{ name: string }>;
-
-  if (!sessionColumns.some((column) => column.name === "provider_session_id")) {
-    database.exec("ALTER TABLE sessions ADD COLUMN provider_session_id TEXT");
-  }
-
-  if (!sessionColumns.some((column) => column.name === "platform")) {
-    database.exec("ALTER TABLE sessions ADD COLUMN platform TEXT NOT NULL DEFAULT 'slack'");
-  }
-
-  if (!sessionColumns.some((column) => column.name === "platform_user_id")) {
-    database.exec("ALTER TABLE sessions ADD COLUMN platform_user_id TEXT NOT NULL DEFAULT ''");
-  }
-
-  if (!sessionColumns.some((column) => column.name === "platform_channel_id")) {
-    database.exec("ALTER TABLE sessions ADD COLUMN platform_channel_id TEXT NOT NULL DEFAULT ''");
-  }
-
-  if (!sessionColumns.some((column) => column.name === "platform_thread_id")) {
-    database.exec("ALTER TABLE sessions ADD COLUMN platform_thread_id TEXT");
-  }
-
-  const runColumns = database.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>;
-
-  if (!runColumns.some((column) => column.name === "platform")) {
-    database.exec("ALTER TABLE runs ADD COLUMN platform TEXT NOT NULL DEFAULT 'slack'");
-  }
-
-  if (!runColumns.some((column) => column.name === "platform_channel_id")) {
-    database.exec("ALTER TABLE runs ADD COLUMN platform_channel_id TEXT NOT NULL DEFAULT ''");
-  }
-
-  if (!runColumns.some((column) => column.name === "platform_thread_id")) {
-    database.exec("ALTER TABLE runs ADD COLUMN platform_thread_id TEXT");
-  }
-
-  if (!runColumns.some((column) => column.name === "platform_user_id")) {
-    database.exec("ALTER TABLE runs ADD COLUMN platform_user_id TEXT NOT NULL DEFAULT ''");
-  }
-
-  if (!runColumns.some((column) => column.name === "raw_output")) {
-    database.exec("ALTER TABLE runs ADD COLUMN raw_output TEXT NOT NULL DEFAULT ''");
-  }
-
-  if (runColumns.some((column) => column.name === "slack_channel_id")) {
-    database.exec(`
-      UPDATE runs
-      SET platform = COALESCE(NULLIF(platform, ''), 'slack'),
-          platform_channel_id = CASE
-            WHEN platform_channel_id = '' THEN slack_channel_id
-            ELSE platform_channel_id
-          END,
-          platform_thread_id = COALESCE(platform_thread_id, slack_thread_ts)
+      );
     `);
+
+    const sessionColumns = database
+      .prepare("PRAGMA table_info(sessions)")
+      .all() as Array<{ name: string }>;
+
+    if (!sessionColumns.some((column) => column.name === "provider_session_id")) {
+      database.exec("ALTER TABLE sessions ADD COLUMN provider_session_id TEXT");
+    }
+
+    if (!sessionColumns.some((column) => column.name === "platform")) {
+      database.exec("ALTER TABLE sessions ADD COLUMN platform TEXT NOT NULL DEFAULT 'slack'");
+    }
+
+    if (!sessionColumns.some((column) => column.name === "platform_user_id")) {
+      database.exec("ALTER TABLE sessions ADD COLUMN platform_user_id TEXT NOT NULL DEFAULT ''");
+    }
+
+    if (!sessionColumns.some((column) => column.name === "platform_channel_id")) {
+      database.exec("ALTER TABLE sessions ADD COLUMN platform_channel_id TEXT NOT NULL DEFAULT ''");
+    }
+
+    if (!sessionColumns.some((column) => column.name === "platform_thread_id")) {
+      database.exec("ALTER TABLE sessions ADD COLUMN platform_thread_id TEXT");
+    }
+
+    const runColumns = database.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>;
+
+    if (!runColumns.some((column) => column.name === "platform")) {
+      database.exec("ALTER TABLE runs ADD COLUMN platform TEXT NOT NULL DEFAULT 'slack'");
+    }
+
+    if (!runColumns.some((column) => column.name === "platform_channel_id")) {
+      database.exec("ALTER TABLE runs ADD COLUMN platform_channel_id TEXT NOT NULL DEFAULT ''");
+    }
+
+    if (!runColumns.some((column) => column.name === "platform_thread_id")) {
+      database.exec("ALTER TABLE runs ADD COLUMN platform_thread_id TEXT");
+    }
+
+    if (!runColumns.some((column) => column.name === "platform_user_id")) {
+      database.exec("ALTER TABLE runs ADD COLUMN platform_user_id TEXT NOT NULL DEFAULT ''");
+    }
+
+    if (!runColumns.some((column) => column.name === "raw_output")) {
+      database.exec("ALTER TABLE runs ADD COLUMN raw_output TEXT NOT NULL DEFAULT ''");
+    }
+
+    if (runColumns.some((column) => column.name === "slack_channel_id")) {
+      database.exec(`
+        UPDATE runs
+        SET platform = COALESCE(NULLIF(platform, ''), 'slack'),
+            platform_channel_id = CASE
+              WHEN platform_channel_id = '' THEN slack_channel_id
+              ELSE platform_channel_id
+            END,
+            platform_thread_id = COALESCE(platform_thread_id, slack_thread_ts)
+      `);
+    }
+
+    const workspaceColumns = getTableColumns(database, "workspaces");
+
+    if (!workspaceColumns.some((column) => column.name === "root_path")) {
+      database.exec("ALTER TABLE workspaces ADD COLUMN root_path TEXT NOT NULL DEFAULT ''");
+    }
+
+    if (!workspaceColumns.some((column) => column.name === "kind")) {
+      database.exec("ALTER TABLE workspaces ADD COLUMN kind TEXT NOT NULL DEFAULT 'plain_dir'");
+    }
+
+    if (!workspaceColumns.some((column) => column.name === "source")) {
+      database.exec("ALTER TABLE workspaces ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'");
+    }
+
+    if (!workspaceColumns.some((column) => column.name === "git_capable")) {
+      database.exec("ALTER TABLE workspaces ADD COLUMN git_capable INTEGER NOT NULL DEFAULT 0");
+    }
+
+    if (!workspaceColumns.some((column) => column.name === "worktree_capable")) {
+      database.exec("ALTER TABLE workspaces ADD COLUMN worktree_capable INTEGER NOT NULL DEFAULT 0");
+    }
+
+    if (!workspaceColumns.some((column) => column.name === "created_at")) {
+      database.exec("ALTER TABLE workspaces ADD COLUMN created_at TEXT NOT NULL DEFAULT ''");
+    }
+
+    if (!workspaceColumns.some((column) => column.name === "updated_at")) {
+      database.exec("ALTER TABLE workspaces ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''");
+    }
+
+    if (!workspaceColumns.some((column) => column.name === "last_used_at")) {
+      database.exec("ALTER TABLE workspaces ADD COLUMN last_used_at TEXT");
+    }
+
+    ensureExecutionContextTable(database);
+
+    return database;
+  } catch (error) {
+    try {
+      database.exec("ROLLBACK;");
+    } catch {
+      // Ignore rollback failures when the transaction was never started or already ended.
+    }
+
+    database.close();
+    throw error;
   }
-
-  const workspaceColumns = getTableColumns(database, "workspaces");
-
-  if (!workspaceColumns.some((column) => column.name === "root_path")) {
-    database.exec("ALTER TABLE workspaces ADD COLUMN root_path TEXT NOT NULL DEFAULT ''");
-  }
-
-  if (!workspaceColumns.some((column) => column.name === "kind")) {
-    database.exec("ALTER TABLE workspaces ADD COLUMN kind TEXT NOT NULL DEFAULT 'plain_dir'");
-  }
-
-  if (!workspaceColumns.some((column) => column.name === "source")) {
-    database.exec("ALTER TABLE workspaces ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'");
-  }
-
-  if (!workspaceColumns.some((column) => column.name === "git_capable")) {
-    database.exec("ALTER TABLE workspaces ADD COLUMN git_capable INTEGER NOT NULL DEFAULT 0");
-  }
-
-  if (!workspaceColumns.some((column) => column.name === "worktree_capable")) {
-    database.exec("ALTER TABLE workspaces ADD COLUMN worktree_capable INTEGER NOT NULL DEFAULT 0");
-  }
-
-  if (!workspaceColumns.some((column) => column.name === "created_at")) {
-    database.exec("ALTER TABLE workspaces ADD COLUMN created_at TEXT NOT NULL DEFAULT ''");
-  }
-
-  if (!workspaceColumns.some((column) => column.name === "updated_at")) {
-    database.exec("ALTER TABLE workspaces ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''");
-  }
-
-  if (!workspaceColumns.some((column) => column.name === "last_used_at")) {
-    database.exec("ALTER TABLE workspaces ADD COLUMN last_used_at TEXT");
-  }
-
-  ensureExecutionContextTable(database);
-
-  return database;
 }
 
 export type AppDatabase = ReturnType<typeof createDatabase>;

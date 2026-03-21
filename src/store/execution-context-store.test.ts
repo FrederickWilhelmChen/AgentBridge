@@ -91,3 +91,24 @@ test("update preserves the original workspace binding and createdAt", () => {
     updatedAt: "2026-03-21T11:00:00.000Z"
   });
 });
+
+test("update fails loudly when the execution context does not exist", () => {
+  const database = createDatabase(":memory:");
+  const contextStore = new ExecutionContextStore(database);
+
+  assert.throws(
+    () =>
+      contextStore.update({
+        contextId: "missing-context",
+        workspaceId: "workspace-1",
+        kind: "main",
+        path: "E:/repos/project-a",
+        managed: false,
+        status: "archived",
+        branch: null,
+        createdAt: "2026-03-21T10:00:00.000Z",
+        updatedAt: "2026-03-21T11:00:00.000Z"
+      }),
+    /does not exist/i
+  );
+});
