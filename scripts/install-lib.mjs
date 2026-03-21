@@ -13,10 +13,12 @@ export function setEnvValue(content, key, value) {
 }
 
 export function commandExists(command) {
-  const checker = os.platform() === "win32" ? "where" : "which";
-  const result = spawnSync(checker, [command], {
+  const isWin = os.platform() === "win32";
+  const checker = isWin ? "where" : "which";
+  const [spawnCmd, spawnArgs] = isWin ? ["cmd", ["/c", checker, command]] : [checker, [command]];
+  const result = spawnSync(spawnCmd, spawnArgs, {
     stdio: "ignore",
-    shell: false
+    env: process.env
   });
   return result.status === 0;
 }

@@ -1,11 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { spawnSync } from "node:child_process";
 import { chooseFirstAvailable, commandExists, normalizePlatforms, normalizeYesNo, setEnvValue } from "./install-lib.mjs";
 
-const rootDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..").replace(/^\/([A-Za-z]:)/, "$1");
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const envExamplePath = path.join(rootDir, ".env.example");
 const envPath = path.join(rootDir, ".env");
 
@@ -169,10 +170,12 @@ function ensureCommand(command) {
 
 function run(command, args, title) {
   console.log(`\n${title}`);
-  const result = spawnSync(command, args, {
+  const isWin = process.platform === "win32";
+  const [spawnCmd, spawnArgs] = isWin ? ["cmd", ["/c", command, ...args]] : [command, args];
+  const result = spawnSync(spawnCmd, spawnArgs, {
     cwd: rootDir,
     stdio: "inherit",
-    shell: process.platform === "win32"
+    env: process.env
   });
   if (result.error) {
     throw new Error(`${command} ${args.join(" ")} failed to spawn: ${result.error.message}`);
