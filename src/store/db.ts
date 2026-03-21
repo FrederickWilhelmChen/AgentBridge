@@ -35,6 +35,7 @@ function hasForeignKey(
 
 function rebuildExecutionContextTable(database: SqliteDatabase) {
   const legacyColumns = getTableColumns(database, "execution_contexts").map((column) => column.name);
+  const hasWorkspaceId = legacyColumns.includes("workspace_id");
   database.exec(`
     ALTER TABLE execution_contexts RENAME TO execution_contexts_legacy;
 
@@ -53,7 +54,7 @@ function rebuildExecutionContextTable(database: SqliteDatabase) {
 
   const selectExpressions = [
     legacyColumns.includes("context_id") ? "context_id" : "NULL",
-    legacyColumns.includes("workspace_id") ? "workspace_id" : "''",
+    hasWorkspaceId ? "workspace_id" : "''",
     legacyColumns.includes("kind") ? "COALESCE(kind, 'main')" : "'main'",
     legacyColumns.includes("path") ? "COALESCE(path, '')" : "''",
     legacyColumns.includes("managed") ? "COALESCE(managed, 0)" : "0",
@@ -63,22 +64,24 @@ function rebuildExecutionContextTable(database: SqliteDatabase) {
     legacyColumns.includes("updated_at") ? "COALESCE(updated_at, '')" : "''"
   ];
 
-  database.exec(`
-    INSERT INTO execution_contexts (
-      context_id, workspace_id, kind, path, managed, status, branch, created_at, updated_at
-    )
-    SELECT
-      ${selectExpressions.join(",\n      ")}
-    FROM execution_contexts_legacy
-    WHERE workspace_id IS NOT NULL
-      AND EXISTS (
-        SELECT 1
-        FROM workspaces
-        WHERE workspaces.workspace_id = execution_contexts_legacy.workspace_id
-      );
+  if (hasWorkspaceId) {
+    database.exec(`
+      INSERT INTO execution_contexts (
+        context_id, workspace_id, kind, path, managed, status, branch, created_at, updated_at
+      )
+      SELECT
+        ${selectExpressions.join(",\n      ")}
+      FROM execution_contexts_legacy
+      WHERE workspace_id IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM workspaces
+          WHERE workspaces.workspace_id = execution_contexts_legacy.workspace_id
+        );
+    `);
+  }
 
-    DROP TABLE execution_contexts_legacy;
-  `);
+  database.exec("DROP TABLE execution_contexts_legacy;");
 }
 
 function ensureExecutionContextTable(database: SqliteDatabase) {

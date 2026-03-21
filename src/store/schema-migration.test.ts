@@ -9,7 +9,31 @@ import { SessionStore } from "./session-store.js";
 import { WorkspaceStore } from "./workspace-store.js";
 import { ExecutionContextStore } from "./execution-context-store.js";
 
-test("migrates partial workspace and execution-context schemas while preserving session storage", () => {
+test("migrates a legacy execution_contexts table that only has context_id", () => {
+  const dbPath = path.join(os.tmpdir(), `agentbridge-execution-context-${Date.now()}.db`);
+  const database = new Database(dbPath);
+
+  database.exec(`
+    CREATE TABLE execution_contexts (
+      context_id TEXT PRIMARY KEY
+    );
+
+    INSERT INTO execution_contexts (context_id) VALUES ('legacy-context-1');
+  `);
+
+  database.close();
+
+  const migrated = createDatabase(dbPath);
+  const contextStore = new ExecutionContextStore(migrated);
+
+  assert.ok(migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get("execution_contexts"));
+  assert.equal(contextStore.findById("legacy-context-1"), null);
+
+  migrated.close();
+  fs.unlinkSync(dbPath);
+});
+
+test("migrates partially populated workspace and execution_context schemas without breaking sessions", () => {
   const dbPath = path.join(os.tmpdir(), `agentbridge-schema-${Date.now()}.db`);
   const database = new Database(dbPath);
 
