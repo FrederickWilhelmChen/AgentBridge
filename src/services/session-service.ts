@@ -279,6 +279,36 @@ export class SessionService {
     };
   }
 
+  public switchExecutionContext(sessionId: string, contextId: string): Session {
+    if (!this.executionContextStore) {
+      throw new Error("Execution context store is not configured");
+    }
+
+    const session = this.getSessionById(sessionId);
+    if (!session) {
+      throw new Error(`Session ${sessionId} does not exist`);
+    }
+
+    const context = this.executionContextStore.findById(contextId);
+    if (!context) {
+      throw new Error(`Execution context ${contextId} does not exist`);
+    }
+
+    if (session.workspaceId && context.workspaceId !== session.workspaceId) {
+      throw new Error(
+        `Execution context ${contextId} does not belong to session workspace ${session.workspaceId}`
+      );
+    }
+
+    return this.updateSession({
+      ...session,
+      cwd: context.path,
+      currentContextId: context.contextId,
+      workspaceId: session.workspaceId ?? context.workspaceId,
+      lastActiveAt: new Date().toISOString()
+    });
+  }
+
   public buildPersistentSessionLockKey(params: {
     agentType: AgentType;
     platform: Session["platform"];
