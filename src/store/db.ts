@@ -190,6 +190,22 @@ function ensureExecutionContextTable(database: SqliteDatabase) {
     return;
   }
 
+  const executionContextRowCount = database
+    .prepare("SELECT COUNT(*) AS count FROM execution_contexts")
+    .get() as { count: number };
+
+  if (executionContextRowCount.count > 0) {
+    const missingRequiredColumns = EXECUTION_CONTEXT_REQUIRED_COLUMNS.filter(
+      (columnName) => !executionContextColumns.some((column) => column.name === columnName)
+    );
+
+    if (missingRequiredColumns.length > 0) {
+      throw new Error(
+        `Cannot safely migrate execution_contexts legacy rows because required columns are missing: ${missingRequiredColumns.join(", ")}`
+      );
+    }
+  }
+
   const hasWorkspaceForeignKey = hasForeignKey(
     database,
     "execution_contexts",

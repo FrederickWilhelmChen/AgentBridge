@@ -104,6 +104,64 @@ test("fails execution-context migration when populated legacy rows are missing s
   });
 });
 
+test("fails execution-context migration when populated legacy rows with a foreign key are missing semantic columns", () => {
+  withTempDb((dbPath) => {
+    const database = new Database(dbPath);
+
+    database.exec(`
+      CREATE TABLE workspaces (
+        workspace_id TEXT PRIMARY KEY,
+        root_path TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        source TEXT NOT NULL,
+        git_capable INTEGER NOT NULL,
+        worktree_capable INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE execution_contexts (
+        context_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id),
+        kind TEXT NOT NULL,
+        managed INTEGER NOT NULL,
+        status TEXT NOT NULL
+      );
+
+      INSERT INTO workspaces (
+        workspace_id, root_path, kind, source, git_capable, worktree_capable, created_at, updated_at
+      ) VALUES (
+        'workspace-1', 'E:/repos/project-a', 'git_repo', 'manual', 1, 1,
+        '2026-03-21T09:30:00.000Z', '2026-03-21T09:35:00.000Z'
+      );
+      INSERT INTO execution_contexts (
+        context_id, workspace_id, kind, managed, status
+      ) VALUES (
+        'context-1', 'workspace-1', 'main', 0, 'active'
+      );
+    `);
+
+    database.close();
+
+    assert.throws(
+      () => createDatabase(dbPath),
+      /required columns are missing: path, created_at, updated_at/i
+    );
+
+    const reopened = new Database(dbPath);
+    const columns = reopened.prepare("PRAGMA table_info(execution_contexts)").all() as Array<{ name: string }>;
+    assert.deepEqual(columns.map((column) => column.name), [
+      "context_id",
+      "workspace_id",
+      "kind",
+      "managed",
+      "status"
+    ]);
+    assert.equal((reopened.prepare("SELECT COUNT(*) AS count FROM execution_contexts").get() as { count: number }).count, 1);
+    reopened.close();
+  });
+});
+
 test("fails workspace migration when populated legacy rows are missing semantic columns", () => {
   withTempDb((dbPath) => {
     const database = new Database(dbPath);
