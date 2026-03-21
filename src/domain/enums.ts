@@ -10,7 +10,7 @@ export type SessionStatus = (typeof SESSION_STATUSES)[number];
 export const WORKSPACE_KINDS = ["git_repo", "plain_dir"] as const;
 export type WorkspaceKind = (typeof WORKSPACE_KINDS)[number];
 
-export const WORKSPACE_SOURCES = ["manual"] as const;
+export const WORKSPACE_SOURCES = ["manual", "marker_file", "scanned_git"] as const;
 export type WorkspaceSource = (typeof WORKSPACE_SOURCES)[number];
 
 export const EXECUTION_CONTEXT_KINDS = ["main"] as const;

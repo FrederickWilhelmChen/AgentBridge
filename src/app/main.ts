@@ -8,7 +8,9 @@ import { createDatabase } from "../store/db.js";
 import { SessionStore } from "../store/session-store.js";
 import { RunStore } from "../store/run-store.js";
 import { InboundMessageStore } from "../store/inbound-message-store.js";
+import { WorkspaceStore } from "../store/workspace-store.js";
 import { SessionService } from "../services/session-service.js";
+import { WorkspaceDiscoveryService } from "../services/workspace-discovery-service.js";
 import { ProcessManager } from "../runtime/process-manager.js";
 import { ImageCache } from "../runtime/image-cache.js";
 import { AgentBridgeService } from "../services/agent-bridge-service.js";
@@ -22,8 +24,10 @@ async function main() {
   const sessionStore = new SessionStore(database);
   const runStore = new RunStore(database);
   const inboundMessageStore = new InboundMessageStore(database);
+  const workspaceStore = new WorkspaceStore(database);
 
-  const sessionService = new SessionService(sessionStore, runStore);
+  const sessionService = new SessionService(sessionStore, runStore, workspaceStore);
+  const workspaceDiscoveryService = new WorkspaceDiscoveryService(sessionService);
   const processManager = new ProcessManager(logger, {
     httpProxy: config.runtime.httpProxy,
     httpsProxy: config.runtime.httpsProxy
@@ -53,11 +57,18 @@ async function main() {
     clearInterval(imageCleanupTimer);
   });
 
+  const discoveryResult = config.runtime.workspace
+    ? workspaceDiscoveryService.refresh(config.runtime.workspace)
+    : { workspaces: [] };
+
   logger.info(
     {
       dbPath: config.database.path,
       enabledPlatforms: config.runtime.enabledPlatforms,
       allowedCwds: config.runtime.allowedCwds,
+      workspaceParents: config.runtime.workspace?.allowedWorkspaceParents ?? [],
+      manualWorkspaces: config.runtime.workspace?.manualWorkspaces ?? [],
+      discoveredWorkspaceCount: discoveryResult.workspaces.length,
       defaultAgent: config.runtime.defaultAgent,
       httpProxy: config.runtime.httpProxy,
       httpsProxy: config.runtime.httpsProxy
