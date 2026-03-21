@@ -65,5 +65,6 @@ export function buildResumeProfile(
 }
 
 function shouldUseShell(command: string): boolean {
+  if (process.platform === "win32") return true;
   return /\.(cmd|bat|ps1)$/i.test(command);
 }
