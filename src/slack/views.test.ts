@@ -39,3 +39,29 @@ test("buildConsoleModal shows workspace labels instead of raw cwd field names", 
     ["project-a", "multi-ideas"]
   );
 });
+
+test("buildConsoleModal omits submit and shows an empty-state message when no workspaces are available", () => {
+  const modal = buildConsoleModal({
+    workspaces: [],
+    defaultAgent: "codex"
+  });
+
+  assert.equal((modal as any).submit, undefined);
+  const emptyStateBlock = modal.blocks.find((block: any) => block.block_id === "workspace_empty_block") as any;
+  assert.match(emptyStateBlock.text.text, /no workspaces available/i);
+});
+
+test("buildConsoleModal falls back to manual workspace entry when the workspace list exceeds Slack static_select limits", () => {
+  const modal = buildConsoleModal({
+    workspaces: Array.from({ length: 101 }, (_, index) => ({
+      rootPath: `E:/repos/project-${index + 1}`,
+      label: `project-${index + 1}`,
+      kind: "git_repo" as const
+    })),
+    defaultAgent: "codex"
+  });
+
+  const workspaceBlock = modal.blocks.find((block: any) => block.block_id === "workspace_block") as any;
+  assert.equal(workspaceBlock.element.type, "plain_text_input");
+  assert.match(workspaceBlock.hint.text, /exact workspace path or label/i);
+});

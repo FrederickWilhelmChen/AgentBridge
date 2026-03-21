@@ -275,3 +275,105 @@ test("handleIncomingMessage prefers a thread-bound Lark session over the user-sc
   assert.equal(usedAgentType, "claude");
   assert.equal(usedCwd, "/Users/test/thread-repo");
 });
+
+test("runOnce marks the run as failed when process startup throws", async () => {
+  const updates: Run[] = [];
+  const run = createRun({ sessionId: null, status: "queued" });
+
+  const service = new AgentBridgeService(
+    createConfig(),
+    {
+      createRun() {
+        return run;
+      },
+      updateRun(nextRun: Run) {
+        updates.push(nextRun);
+        return nextRun;
+      }
+    } as any,
+    {
+      async run() {
+        throw new Error("spawn ENOENT");
+      }
+    } as any
+  );
+
+  await assert.rejects(
+    service.runOnce({
+      agentType: "codex",
+      cwd: "E:/AgentBridge",
+      message: "hello",
+      platform: "slack",
+      platformChannelId: "D123",
+      platformUserId: "U123"
+    }),
+    /spawn ENOENT/
+  );
+
+  assert.equal(updates.length, 2);
+  assert.equal(updates[0]?.status, "starting");
+  assert.equal(updates[1]?.status, "failed");
+  assert.equal(updates[1]?.errorReason, "spawn ENOENT");
+  assert.equal(updates[1]?.endedAt === null, false);
+});
+
+test("sendToPersistentSession marks the run failed and session errored when process startup throws", async () => {
+  const runUpdates: Run[] = [];
+  const sessionUpdates: Session[] = [];
+  const session = createSession({ providerSessionId: "resume-123" });
+
+  const service = new AgentBridgeService(
+    createConfig(),
+    {
+      getPersistentSessionByThread() {
+        return session;
+      },
+      createRun(params: {
+        sessionId: string | null;
+        agentType: Session["agentType"];
+        inputText: string;
+      }) {
+        return createRun({
+          sessionId: params.sessionId,
+          agentType: params.agentType,
+          inputText: params.inputText
+        });
+      },
+      updateRun(run: Run) {
+        runUpdates.push(run);
+        return run;
+      },
+      updateSession(nextSession: Session) {
+        sessionUpdates.push(nextSession);
+        return nextSession;
+      }
+    } as any,
+    {
+      async run() {
+        throw new Error("cwd not found");
+      }
+    } as any
+  );
+
+  await assert.rejects(
+    service.sendToPersistentSession({
+      agentType: "codex",
+      cwd: "E:/AgentBridge",
+      message: "hello",
+      platform: "slack",
+      platformChannelId: "D123",
+      platformThreadId: "thread-1",
+      platformUserId: "U123"
+    }),
+    /cwd not found/
+  );
+
+  assert.equal(runUpdates.length, 2);
+  assert.equal(runUpdates[0]?.status, "starting");
+  assert.equal(runUpdates[1]?.status, "failed");
+  assert.equal(runUpdates[1]?.errorReason, "cwd not found");
+  assert.equal(sessionUpdates.length, 2);
+  assert.equal(sessionUpdates[0]?.status, "running");
+  assert.equal(sessionUpdates[1]?.status, "error");
+  assert.equal(sessionUpdates[1]?.lastRunId, runUpdates[1]?.runId);
+});

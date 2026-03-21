@@ -83,3 +83,36 @@ test("buildExecutionBlocks shows the current context when a session exists", () 
   assert.equal(summary?.type, "section");
   assert.match((summary as any).text.text, /\*Current context:\* E:\/AgentBridge/);
 });
+
+test("buildExecutionBlocks hides the interrupt button after the run finishes", () => {
+  const blocks = buildExecutionBlocks({
+    title: "Conversation Started",
+    run: createRun("done"),
+    session: createSession()
+  });
+
+  const actions = blocks[2] as any;
+  assert.equal(actions.type, "actions");
+  assert.deepEqual(
+    actions.elements.map((element: any) => element.text.text),
+    ["Open Console"]
+  );
+});
+
+test("buildExecutionBlocks keeps the interrupt button for active runs", () => {
+  const blocks = buildExecutionBlocks({
+    title: "Conversation Started",
+    run: {
+      ...createRun("working"),
+      status: "running",
+      endedAt: null
+    },
+    session: createSession()
+  });
+
+  const actions = blocks[2] as any;
+  assert.deepEqual(
+    actions.elements.map((element: any) => element.text.text),
+    ["Interrupt", "Open Console"]
+  );
+});

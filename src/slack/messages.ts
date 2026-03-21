@@ -10,6 +10,29 @@ export function buildExecutionBlocks(args: {
 }): KnownBlock[] {
   const sessionLabel = args.session ? args.session.sessionId : "run once";
   const tail = formatCodeBlockSection("*Output tail*", args.run.outputTail || "(no output)");
+  const actionElements: KnownBlock[] = [];
+
+  if (isInterruptibleRunStatus(args.run.status)) {
+    actionElements.push({
+      type: "button",
+      text: {
+        type: "plain_text",
+        text: "Interrupt"
+      },
+      action_id: "interrupt_run",
+      value: args.run.runId
+    } as unknown as KnownBlock);
+  }
+
+  actionElements.push({
+    type: "button",
+    text: {
+      type: "plain_text",
+      text: "Open Console"
+    },
+    action_id: "open_console_button",
+    value: args.run.agentType
+  } as unknown as KnownBlock);
 
   return [
     {
@@ -28,26 +51,7 @@ export function buildExecutionBlocks(args: {
     },
     {
       type: "actions",
-      elements: [
-        {
-          type: "button",
-          text: {
-            type: "plain_text",
-            text: "Interrupt"
-          },
-          action_id: "interrupt_run",
-          value: args.run.runId
-        },
-        {
-          type: "button",
-          text: {
-            type: "plain_text",
-            text: "Open Console"
-          },
-          action_id: "open_console_button",
-          value: args.run.agentType
-        }
-      ]
+      elements: actionElements as any
     }
   ];
 }
@@ -112,4 +116,8 @@ function formatCodeBlockSection(title: string, body: string): string {
   const truncatedBodyLength = Math.max(0, maxBodyLength - suffix.length);
   const truncatedBody = normalized.slice(0, truncatedBodyLength);
   return `${title}\n\`\`\`${truncatedBody}\`\`\`${suffix}`;
+}
+
+function isInterruptibleRunStatus(status: Run["status"]): boolean {
+  return status === "queued" || status === "starting" || status === "running";
 }

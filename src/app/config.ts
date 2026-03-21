@@ -184,17 +184,11 @@ export function loadConfig(): AppConfig {
   const manualWorkspaces = parsePathList(parsed.AGENTBRIDGE_MANUAL_WORKSPACES);
   const legacyAllowedCwds = parsePathList(parsed.AGENTBRIDGE_ALLOWED_CWDS);
 
-  const hasRunnableWorkspaceSource = manualWorkspaces.length > 0 || legacyAllowedCwds.length > 0;
+  const hasAnyWorkspaceSource = allowedWorkspaceParents.length > 0 || manualWorkspaces.length > 0 || legacyAllowedCwds.length > 0;
 
-  if (allowedWorkspaceParents.length === 0 && !hasRunnableWorkspaceSource) {
+  if (!hasAnyWorkspaceSource) {
     throw new Error(
       "No workspace source configured. Set AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS, AGENTBRIDGE_MANUAL_WORKSPACES, or legacy AGENTBRIDGE_ALLOWED_CWDS."
-    );
-  }
-
-  if (allowedWorkspaceParents.length > 0 && !hasRunnableWorkspaceSource) {
-    throw new Error(
-      "Workspace parents are configured, but no runnable workspace source is available yet. Add AGENTBRIDGE_MANUAL_WORKSPACES or legacy AGENTBRIDGE_ALLOWED_CWDS until discovery is implemented."
     );
   }
 

@@ -52,26 +52,39 @@ export class AgentBridgeService {
         status: "starting"
       });
 
-      const result = await this.processManager.run(
-        run.runId,
-        buildRunOnceProfile(this.config, params.agentType, executionCwd, params.message),
-        this.config.runtime.defaultTimeoutMs
-      );
+      try {
+        const result = await this.processManager.run(
+          run.runId,
+          buildRunOnceProfile(this.config, params.agentType, executionCwd, params.message),
+          this.config.runtime.defaultTimeoutMs
+        );
 
-      run = this.sessionService.updateRun({
-        ...run,
-        status: result.status,
-        endedAt: new Date().toISOString(),
-        exitCode: result.exitCode,
-        outputTail: result.parsedOutput,
-        rawOutput: result.output,
-        errorReason: result.errorReason
-      });
+        run = this.sessionService.updateRun({
+          ...run,
+          status: result.status,
+          endedAt: new Date().toISOString(),
+          exitCode: result.exitCode,
+          outputTail: result.parsedOutput,
+          rawOutput: result.output,
+          errorReason: result.errorReason
+        });
 
-      return {
-        run,
-        session: null
-      };
+        return {
+          run,
+          session: null
+        };
+      } catch (error) {
+        run = this.sessionService.updateRun({
+          ...run,
+          status: "failed",
+          endedAt: new Date().toISOString(),
+          exitCode: null,
+          outputTail: "",
+          rawOutput: "",
+          errorReason: formatErrorReason(error)
+        });
+        throw error;
+      }
     });
   }
 
@@ -217,34 +230,55 @@ export class AgentBridgeService {
             )
           : buildRunOnceProfile(this.config, params.agentType, executionCwd, params.message);
 
-        const result = await this.processManager.run(
-          run.runId,
-          profile,
-          this.config.runtime.defaultTimeoutMs
-        );
+        try {
+          const result = await this.processManager.run(
+            run.runId,
+            profile,
+            this.config.runtime.defaultTimeoutMs
+          );
 
-        run = this.sessionService.updateRun({
-          ...run,
-          status: result.status,
-          endedAt: new Date().toISOString(),
-          exitCode: result.exitCode,
-          outputTail: result.parsedOutput,
-          rawOutput: result.output,
-          errorReason: result.errorReason
-        });
+          run = this.sessionService.updateRun({
+            ...run,
+            status: result.status,
+            endedAt: new Date().toISOString(),
+            exitCode: result.exitCode,
+            outputTail: result.parsedOutput,
+            rawOutput: result.output,
+            errorReason: result.errorReason
+          });
 
-        updatedSession = this.sessionService.updateSession({
-          ...updatedSession,
-          status: result.status === "finished" ? "idle" : "error",
-          providerSessionId: result.providerSessionId ?? updatedSession.providerSessionId,
-          lastActiveAt: new Date().toISOString(),
-          lastRunId: run.runId
-        });
+          updatedSession = this.sessionService.updateSession({
+            ...updatedSession,
+            status: result.status === "finished" ? "idle" : "error",
+            providerSessionId: result.providerSessionId ?? updatedSession.providerSessionId,
+            lastActiveAt: new Date().toISOString(),
+            lastRunId: run.runId
+          });
 
-        return {
-          run,
-          session: updatedSession
-        };
+          return {
+            run,
+            session: updatedSession
+          };
+        } catch (error) {
+          run = this.sessionService.updateRun({
+            ...run,
+            status: "failed",
+            endedAt: new Date().toISOString(),
+            exitCode: null,
+            outputTail: "",
+            rawOutput: "",
+            errorReason: formatErrorReason(error)
+          });
+
+          updatedSession = this.sessionService.updateSession({
+            ...updatedSession,
+            status: "error",
+            lastActiveAt: new Date().toISOString(),
+            lastRunId: run.runId
+          });
+
+          throw error;
+        }
       });
     });
   }
@@ -520,4 +554,12 @@ function buildPromptWithAttachments(message: IncomingPlatformMessage): string {
   }
 
   return `${message.rawText}\n\nAttached images:\n${imageLines.join("\n")}`;
+}
+
+function formatErrorReason(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return "Unknown process execution error";
 }
