@@ -56,18 +56,29 @@ export class SessionService {
     workspaceId: string | null = null,
     currentContextId: string | null = null
   ): Session {
-    const existing = this.sessionStore.findPersistentByScope(agentType, platform, platformUserId);
+    const existing = platformThreadId && platformChannelId
+      ? this.sessionStore.findPersistentByThread(
+          platform,
+          platformUserId,
+          platformChannelId,
+          platformThreadId
+        )
+      : this.sessionStore.findPersistentByScope(agentType, platform, platformUserId);
     if (existing) {
       if (
         existing.cwd !== cwd
         || (existing.workspaceId ?? null) !== workspaceId
         || (existing.currentContextId ?? null) !== currentContextId
+        || existing.platformChannelId !== platformChannelId
+        || (existing.platformThreadId ?? null) !== platformThreadId
       ) {
         return this.sessionStore.update({
           ...existing,
           cwd,
           workspaceId,
           currentContextId,
+          platformChannelId,
+          platformThreadId,
           lastActiveAt: new Date().toISOString()
         });
       }

@@ -59,14 +59,14 @@ export function createLarkController(
   if (instrumentedWsClient.handleControlData) {
     const originalHandleControlData = instrumentedWsClient.handleControlData.bind(wsClient);
     instrumentedWsClient.handleControlData = async (data: unknown) => {
-      logger.info({ data }, "Lark WS control frame");
+      logger.debug?.({ hasData: data !== undefined }, "Lark WS control frame");
       return originalHandleControlData(data);
     };
   }
   if (instrumentedWsClient.handleEventData) {
     const originalHandleEventData = instrumentedWsClient.handleEventData.bind(wsClient);
     instrumentedWsClient.handleEventData = async (data) => {
-      logger.info({
+      logger.debug?.({
         headers: data?.headers ?? [],
         payloadSize: data?.payload ? data.payload.length : 0
       }, "Lark WS event frame");
@@ -81,13 +81,13 @@ export function createLarkController(
     logger: createSdkLoggerBridge(logger)
   }).register({
     "im.message.receive_v1": async (data: unknown) => {
-      logger.info("Received Lark im.message.receive_v1 event");
+      logger.debug?.("Received Lark im.message.receive_v1 event");
       await messageHandler(data as any);
     }
   });
   const originalInvoke = eventDispatcher.invoke.bind(eventDispatcher);
   eventDispatcher.invoke = async (data: any, params?: { needCheck?: boolean }) => {
-    logger.info({
+    logger.debug?.({
       eventType: data?.header?.event_type ?? data?.schema ?? "unknown",
       messageId: data?.event?.message?.message_id ?? null
     }, "Received raw Lark envelope");
@@ -124,8 +124,8 @@ function createSdkLoggerBridge(logger: Logger) {
   return {
     error: (...args: unknown[]) => logger.error({ sdk: args }, "Lark SDK log"),
     warn: (...args: unknown[]) => logger.warn({ sdk: args }, "Lark SDK log"),
-    info: (...args: unknown[]) => logger.info({ sdk: args }, "Lark SDK log"),
-    debug: (...args: unknown[]) => logger.info({ sdk: args }, "Lark SDK debug"),
-    trace: (...args: unknown[]) => logger.info({ sdk: args }, "Lark SDK trace")
+    info: (...args: unknown[]) => logger.debug?.({ sdk: args }, "Lark SDK log"),
+    debug: (...args: unknown[]) => logger.debug?.({ sdk: args }, "Lark SDK debug"),
+    trace: (...args: unknown[]) => logger.trace?.({ sdk: args }, "Lark SDK trace")
   };
 }

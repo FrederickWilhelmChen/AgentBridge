@@ -51,3 +51,35 @@ test("finds Slack persistent sessions by thread binding", () => {
     null
   );
 });
+
+test("does not reuse a persistent session across different Slack threads for the same user and agent", () => {
+  const database = createDatabase(":memory:");
+  const service = new SessionService(new SessionStore(database), new RunStore(database));
+
+  const firstThreadSession = service.getOrCreatePersistentSession(
+    "codex",
+    "E:/AgentBridge",
+    "slack",
+    "U1",
+    "D123",
+    "171"
+  );
+  const secondThreadSession = service.getOrCreatePersistentSession(
+    "codex",
+    "E:/AgentBridge",
+    "slack",
+    "U1",
+    "D123",
+    "172"
+  );
+
+  assert.notEqual(firstThreadSession.sessionId, secondThreadSession.sessionId);
+  assert.equal(
+    service.getPersistentSessionByThread("slack", "U1", "D123", "171")?.sessionId,
+    firstThreadSession.sessionId
+  );
+  assert.equal(
+    service.getPersistentSessionByThread("slack", "U1", "D123", "172")?.sessionId,
+    secondThreadSession.sessionId
+  );
+});

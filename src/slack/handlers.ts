@@ -103,6 +103,7 @@ export function registerSlackHandlers(app: App, context: HandlerContext) {
     const interrupted = context.agentBridgeService.interruptRun(action.value);
     await client.chat.postMessage({
       channel: body.channel.id,
+      ...(resolveSlackActionThreadTs(body) ? { thread_ts: resolveSlackActionThreadTs(body) } : {}),
       text: interrupted ? "Interrupt requested." : "Run is no longer active.",
       blocks: buildInfoBlocks(interrupted ? "Interrupt requested." : "Run is no longer active.")
     });
@@ -128,6 +129,11 @@ export function registerSlackHandlers(app: App, context: HandlerContext) {
 
     const threadTs = message.thread_ts as string | undefined;
     if (!threadTs) {
+      await client.chat.postMessage({
+        channel: message.channel,
+        text: formatSlackSessionHint(),
+        blocks: buildInfoBlocks(formatSlackSessionHint())
+      });
       return;
     }
 
@@ -138,6 +144,12 @@ export function registerSlackHandlers(app: App, context: HandlerContext) {
       threadTs
     );
     if (!session) {
+      await client.chat.postMessage({
+        channel: message.channel,
+        thread_ts: threadTs,
+        text: formatSlackSessionHint(),
+        blocks: buildInfoBlocks(formatSlackSessionHint())
+      });
       return;
     }
 
@@ -294,6 +306,24 @@ function formatErrorMessage(error: unknown): string {
   }
 
   return "Action failed with an unknown error.";
+}
+
+function formatSlackSessionHint(): string {
+  return "Start a session from the Slack shortcut or the `New Session` button, then continue inside that thread.";
+}
+
+function resolveSlackActionThreadTs(body: any): string | undefined {
+  const threadTs = body?.message?.thread_ts;
+  if (typeof threadTs === "string" && threadTs.length > 0) {
+    return threadTs;
+  }
+
+  const messageTs = body?.message?.ts;
+  if (typeof messageTs === "string" && messageTs.length > 0) {
+    return messageTs;
+  }
+
+  return undefined;
 }
 
 function isDirectMessageEvent(message: any): boolean {

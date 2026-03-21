@@ -105,10 +105,10 @@ test("routes Slack thread replies through the unified message entry point when a
   assert.equal(updatedMessages[0]?.text, "AgentBridge response");
 });
 
-test("ignores Slack DM root messages until a modal-created thread exists", async () => {
+test("guides Slack DM root messages toward the console shortcut", async () => {
   let messageHandler: any = null;
   let routed = false;
-  let posted = false;
+  const postedMessages: Array<{ channel: string; text: string }> = [];
 
   const app = {
     shortcut() {},
@@ -154,8 +154,8 @@ test("ignores Slack DM root messages until a modal-created thread exists", async
     },
     client: {
       chat: {
-        async postMessage() {
-          posted = true;
+        async postMessage(payload: any) {
+          postedMessages.push(payload);
           return { ts: "reply-1" };
         },
         async update() {
@@ -167,13 +167,13 @@ test("ignores Slack DM root messages until a modal-created thread exists", async
   });
 
   assert.equal(routed, false);
-  assert.equal(posted, false);
+  assert.match(postedMessages[0]?.text ?? "", /Open Console|shortcut|Start a session/i);
 });
 
-test("ignores Slack thread replies when the thread is not a registered session", async () => {
+test("guides Slack thread replies when the thread is not a registered session", async () => {
   let messageHandler: any = null;
   let routed = false;
-  let posted = false;
+  const postedMessages: Array<{ channel: string; text: string; thread_ts?: string }> = [];
 
   const app = {
     shortcut() {},
@@ -220,8 +220,8 @@ test("ignores Slack thread replies when the thread is not a registered session",
     },
     client: {
       chat: {
-        async postMessage() {
-          posted = true;
+        async postMessage(payload: any) {
+          postedMessages.push(payload);
           return { ts: "reply-2" };
         },
         async update() {
@@ -233,7 +233,8 @@ test("ignores Slack thread replies when the thread is not a registered session",
   });
 
   assert.equal(routed, false);
-  assert.equal(posted, false);
+  assert.equal(postedMessages[0]?.thread_ts, "171");
+  assert.match(postedMessages[0]?.text ?? "", /Open Console|shortcut|Start a session/i);
 });
 
 test("routes Slack DM image attachments into the unified message entry point", async () => {
@@ -613,4 +614,77 @@ test("ignores duplicate Slack DM deliveries once a message is already reserved",
 
   assert.equal(handledCount, 1);
   assert.equal(postCount, 1);
+});
+
+test("posts interrupt feedback back into the originating Slack thread", async () => {
+  let interruptHandler: any = null;
+  const postedMessages: any[] = [];
+
+  const app = {
+    shortcut() {},
+    view() {},
+    action(actionId: string, handler: (args: any) => Promise<void>) {
+      if (actionId === "interrupt_run") {
+        interruptHandler = handler;
+      }
+    },
+    message() {}
+  };
+
+  registerSlackHandlers(app as any, {
+    allowedUserId: "U123",
+    logger: { warn() {}, error() {} } as any,
+    config: {
+      runtime: {
+        allowedCwds: ["E:/AgentBridge"],
+        defaultAgent: "codex"
+      }
+    } as any,
+    agentBridgeService: {
+      interruptRun() {
+        return true;
+      }
+    } as any
+  });
+
+  if (!interruptHandler) {
+    throw new Error("Expected interrupt action handler to be registered");
+  }
+
+  await interruptHandler({
+    ack: async () => {},
+    body: {
+      user: { id: "U123" },
+      channel: { id: "D123" },
+      message: {
+        ts: "171",
+        thread_ts: "170"
+      }
+    },
+    action: {
+      value: "run-1"
+    },
+    client: {
+      chat: {
+        async postMessage(payload: any) {
+          postedMessages.push(payload);
+        }
+      }
+    }
+  });
+
+  assert.deepEqual(postedMessages[0], {
+    channel: "D123",
+    thread_ts: "170",
+    text: "Interrupt requested.",
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: "Interrupt requested."
+        }
+      }
+    ]
+  });
 });
