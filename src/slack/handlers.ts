@@ -3,6 +3,7 @@ import type { Logger } from "pino";
 import { z } from "zod";
 import type { AppConfig } from "../app/config.js";
 import type { AgentType } from "../domain/enums.js";
+import type { SelectableWorkspace } from "../platform/types.js";
 import type { IncomingImageAttachment } from "../platform/types.js";
 import type { ImageCache } from "../runtime/image-cache.js";
 import type { AgentBridgeService } from "../services/agent-bridge-service.js";
@@ -22,7 +23,7 @@ type HandlerContext = {
 
 const modalSubmissionSchema = z.object({
   agentType: z.enum(["claude", "codex"]),
-  cwd: z.string().min(1),
+  workspaceRoot: z.string().min(1),
   message: z.string().min(1)
 });
 
@@ -34,7 +35,7 @@ export function registerSlackHandlers(app: App, context: HandlerContext) {
     await client.views.open({
       trigger_id: body.trigger_id,
       view: buildConsoleModal({
-        allowedCwds: context.config.runtime.allowedCwds,
+        workspaces: getSelectableWorkspaces(context),
         defaultAgent: context.config.runtime.defaultAgent
       })
     });
@@ -50,13 +51,13 @@ export function registerSlackHandlers(app: App, context: HandlerContext) {
     const startMessage = await client.chat.postMessage({
       channel: dmChannelId,
       text: `Starting conversation with ${values.agentType}...`,
-      blocks: buildInfoBlocks(`Starting a new *${values.agentType}* conversation in \`${values.cwd}\`...`)
+      blocks: buildInfoBlocks(`Starting a new *${values.agentType}* conversation in workspace \`${values.workspaceRoot}\`...`)
     });
 
     try {
       context.agentBridgeService.createOrResetPersistentSession(
         values.agentType,
-        values.cwd,
+        values.workspaceRoot,
         "slack",
         body.user.id,
         dmChannelId,
@@ -65,7 +66,7 @@ export function registerSlackHandlers(app: App, context: HandlerContext) {
 
       const result = await context.agentBridgeService.sendToPersistentSession({
         agentType: values.agentType,
-        cwd: values.cwd,
+        cwd: values.workspaceRoot,
         message: values.message,
         platform: "slack",
         platformChannelId: dmChannelId,
@@ -114,7 +115,7 @@ export function registerSlackHandlers(app: App, context: HandlerContext) {
     await client.views.open({
       trigger_id: body.trigger_id,
       view: buildConsoleModal({
-        allowedCwds: context.config.runtime.allowedCwds,
+        workspaces: getSelectableWorkspaces(context),
         defaultAgent: context.config.runtime.defaultAgent
       })
     });
@@ -214,26 +215,34 @@ function ensureAllowedUser(userId: string, context: HandlerContext) {
 
 function parseModalSubmission(values: Record<string, Record<string, any>>): {
   agentType: AgentType;
-  cwd: string;
+  workspaceRoot: string;
   message: string;
 } {
   const agentBlock = values.agent_block;
-  const cwdBlock = values.cwd_block;
+  const workspaceBlock = values.workspace_block;
   const messageBlock = values.message_block;
 
-  if (!agentBlock || !cwdBlock || !messageBlock) {
+  if (!agentBlock || !workspaceBlock || !messageBlock) {
     throw new Error("Modal submission is missing required fields");
   }
 
   const agentType = agentBlock.agent.selected_option.value as AgentType;
-  const cwd = cwdBlock.cwd.selected_option.value as string;
+  const workspaceRoot = workspaceBlock.workspace.selected_option.value as string;
   const message = (messageBlock.message.value as string | undefined)?.trim() ?? "";
 
   return modalSubmissionSchema.parse({
     agentType,
-    cwd,
+    workspaceRoot,
     message
   });
+}
+
+function getSelectableWorkspaces(context: HandlerContext): SelectableWorkspace[] {
+  return context.agentBridgeService.listSelectableWorkspaces?.() ?? context.config.runtime.allowedCwds.map((cwd) => ({
+    rootPath: cwd,
+    label: cwd,
+    kind: "plain_dir"
+  }));
 }
 
 async function openDirectMessage(client: any, userId: string): Promise<string> {

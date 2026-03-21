@@ -72,7 +72,7 @@ test("buildStatusBlocks truncates output to Slack-safe mrkdwn length", () => {
   assert.match((outputSection as any).text.text, /truncated/i);
 });
 
-test("buildExecutionBlocks shows cwd when a session exists", () => {
+test("buildExecutionBlocks shows the current context when a session exists", () => {
   const blocks = buildExecutionBlocks({
     title: "Conversation Started",
     run: createRun("done"),
@@ -81,5 +81,5 @@ test("buildExecutionBlocks shows cwd when a session exists", () => {
 
   const summary = blocks[0];
   assert.equal(summary?.type, "section");
-  assert.match((summary as any).text.text, /\*cwd:\* E:\/AgentBridge/);
+  assert.match((summary as any).text.text, /\*Current context:\* E:\/AgentBridge/);
 });

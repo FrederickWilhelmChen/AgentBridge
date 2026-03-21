@@ -1,8 +1,9 @@
 import type { KnownBlock, View } from "@slack/types";
+import type { SelectableWorkspace } from "../platform/types.js";
 import type { AgentType } from "../domain/enums.js";
 
 export function buildConsoleModal(args: {
-  allowedCwds: string[];
+  workspaces: SelectableWorkspace[];
   defaultAgent: AgentType;
 }): View {
   return {
@@ -52,27 +53,27 @@ export function buildConsoleModal(args: {
       },
       {
         type: "input",
-        block_id: "cwd_block",
+        block_id: "workspace_block",
         label: {
           type: "plain_text",
-          text: "Working Directory"
+          text: "Workspace"
         },
         element: {
           type: "static_select",
-          action_id: "cwd",
+          action_id: "workspace",
           initial_option: {
             text: {
               type: "plain_text",
-              text: args.allowedCwds[0] ?? "Select a directory"
+              text: args.workspaces[0]?.label ?? "Select a workspace"
             },
-            value: args.allowedCwds[0] ?? ""
+            value: args.workspaces[0]?.rootPath ?? ""
           },
-          options: args.allowedCwds.map((cwd) => ({
+          options: args.workspaces.map((workspace) => ({
             text: {
               type: "plain_text",
-              text: cwd.length > 75 ? `...${cwd.slice(-72)}` : cwd
+              text: workspace.label.length > 75 ? `...${workspace.label.slice(-72)}` : workspace.label
             },
-            value: cwd
+            value: workspace.rootPath
           }))
         }
       },
