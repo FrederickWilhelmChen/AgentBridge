@@ -45,7 +45,7 @@ export function registerSlackHandlers(app: App, context: HandlerContext) {
     await ack();
     ensureAllowedUser(body.user.id, context);
 
-    const values = parseModalSubmission(view.state.values);
+    const values = parseModalSubmission(view.state.values, getSelectableWorkspaces(context));
     const dmChannelId = await openDirectMessage(client, body.user.id);
 
     const startMessage = await client.chat.postMessage({
@@ -213,7 +213,10 @@ function ensureAllowedUser(userId: string, context: HandlerContext) {
   }
 }
 
-function parseModalSubmission(values: Record<string, Record<string, any>>): {
+function parseModalSubmission(
+  values: Record<string, Record<string, any>>,
+  selectableWorkspaces: SelectableWorkspace[]
+): {
   agentType: AgentType;
   workspaceRoot: string;
   message: string;
@@ -227,7 +230,7 @@ function parseModalSubmission(values: Record<string, Record<string, any>>): {
   }
 
   const agentType = agentBlock.agent.selected_option.value as AgentType;
-  const workspaceRoot = workspaceBlock.workspace.selected_option.value as string;
+  const workspaceRoot = resolveSubmittedWorkspaceRoot(workspaceBlock, selectableWorkspaces);
   const message = (messageBlock.message.value as string | undefined)?.trim() ?? "";
 
   return modalSubmissionSchema.parse({
@@ -235,6 +238,33 @@ function parseModalSubmission(values: Record<string, Record<string, any>>): {
     workspaceRoot,
     message
   });
+}
+
+function resolveSubmittedWorkspaceRoot(
+  workspaceBlock: Record<string, any>,
+  selectableWorkspaces: SelectableWorkspace[]
+): string {
+  const selectedRoot = workspaceBlock.workspace?.selected_option?.value as string | undefined;
+  if (selectedRoot) {
+    return selectedRoot;
+  }
+
+  const query = (workspaceBlock.workspace_query?.value as string | undefined)?.trim();
+  if (!query) {
+    throw new Error("Workspace selection is required");
+  }
+
+  const exactPathMatch = selectableWorkspaces.find((workspace) => workspace.rootPath === query);
+  if (exactPathMatch) {
+    return exactPathMatch.rootPath;
+  }
+
+  const labelMatches = selectableWorkspaces.filter((workspace) => workspace.label === query);
+  if (labelMatches.length === 1) {
+    return labelMatches[0]!.rootPath;
+  }
+
+  throw new Error("Workspace must match an exact configured path or a unique label");
 }
 
 function getSelectableWorkspaces(context: HandlerContext): SelectableWorkspace[] {

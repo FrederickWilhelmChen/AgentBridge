@@ -470,7 +470,19 @@ function formatLarkResult(result: LarkResult): string {
 
 function formatLarkResultStatus(result: LarkResult): string {
   if (result.kind === "execution") {
-    return result.run.status === "failed" ? "Failed" : "Completed";
+    if (result.run.status === "failed") {
+      return "Failed";
+    }
+
+    if (result.run.status === "interrupted") {
+      return "Interrupted";
+    }
+
+    if (result.run.status === "timed_out") {
+      return "Timed Out";
+    }
+
+    return "Completed";
   }
 
   return "Completed";

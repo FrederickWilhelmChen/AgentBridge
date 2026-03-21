@@ -29,5 +29,5 @@ function normalizeText(input: string): string {
 }
 
 function isInterruptCommand(normalized: string): boolean {
-  return INTERRUPT_ALIASES.some((alias) => normalized === alias || normalized.includes(alias));
+  return INTERRUPT_ALIASES.some((alias) => normalized === alias);
 }

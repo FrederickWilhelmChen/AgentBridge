@@ -115,7 +115,7 @@ test("loadConfig fails when no workspace source is configured", () => {
   }
 });
 
-test("loadConfig rejects workspace parents without a runnable workspace source", () => {
+test("loadConfig accepts workspace parents without manual workspaces once discovery is available", () => {
   const previousEnv = { ...process.env };
 
   process.env = {
@@ -142,10 +142,14 @@ test("loadConfig rejects workspace parents without a runnable workspace source",
     delete process.env.AGENTBRIDGE_ALLOWED_CWDS;
     delete process.env.AGENTBRIDGE_MANUAL_WORKSPACES;
 
-    assert.throws(
-      () => loadConfig(),
-      /runnable workspace source|workspace source/
-    );
+    const config = loadConfig();
+
+    assert.deepEqual(config.runtime.workspace?.allowedWorkspaceParents, [
+      path.resolve("E:/repos"),
+      path.resolve("E:/projects")
+    ]);
+    assert.deepEqual(config.runtime.workspace?.manualWorkspaces, []);
+    assert.deepEqual(config.runtime.allowedCwds, []);
   } finally {
     process.env = previousEnv;
   }

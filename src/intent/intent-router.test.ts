@@ -36,9 +36,20 @@ test("maps interrupt text to an interrupt control intent", () => {
   assert.equal(result.intent.type, "interrupt");
 });
 
-test("maps interrupt prose to an interrupt control intent", () => {
+test("treats stop prose as a regular prompt", () => {
   const result = parseIntent("please stop the current run");
 
-  assert.equal(result.kind, "control");
-  assert.equal(result.intent.type, "interrupt");
+  assert.deepEqual(result, {
+    kind: "ai_prompt",
+    message: "please stop the current run"
+  });
+});
+
+test("does not treat interrupt discussion as a control command", () => {
+  const result = parseIntent("help me explain interrupt handling");
+
+  assert.deepEqual(result, {
+    kind: "ai_prompt",
+    message: "help me explain interrupt handling"
+  });
 });

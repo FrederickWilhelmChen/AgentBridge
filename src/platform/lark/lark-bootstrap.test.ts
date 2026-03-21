@@ -1139,6 +1139,85 @@ test("lark handler sends and updates a shared progress card for thread execution
   });
 });
 
+test("lark handler shows interrupted runs as Interrupted on the shared progress card", async () => {
+  const cardUpdates: any[] = [];
+  const scheduledTasks: Array<() => Promise<void>> = [];
+
+  const handler = createLarkEventHandler({
+    allowedUserId: "ou_123",
+    agentBridgeService: {
+      getPersistentSessionByThread() {
+        return {
+          sessionId: "session-1",
+          agentType: "codex",
+          cwd: "E:/AgentBridge",
+          lastRunId: "run-1"
+        };
+      },
+      async handleIncomingMessage() {
+        return {
+          kind: "execution",
+          title: "Persistent Session Result",
+          run: {
+            outputTail: "stopped",
+            status: "interrupted"
+          },
+          session: {
+            sessionId: "session-1"
+          }
+        };
+      }
+    } as any,
+    client: {
+      async replyToMessage() {
+        throw new Error("expected progress card path instead of plain text reply");
+      },
+      async replyWithProgressCard() {
+        return "om_progress_interrupt";
+      },
+      async updateProgressCard(messageId: string, title: string, status: string, body: string) {
+        cardUpdates.push({ messageId, title, status, body });
+      }
+    } as any,
+    logger: { info() {}, warn() {}, error() {} } as any,
+    schedule(task: () => Promise<void>) {
+      scheduledTasks.push(task);
+    }
+  });
+
+  await handler({
+    schema: "2.0",
+    header: {
+      event_type: "im.message.receive_v1",
+      event_id: "evt_progress_interrupt",
+      create_time: "171"
+    },
+    event: {
+      message: {
+        message_id: "om_progress_interrupt_src",
+        chat_id: "oc_123",
+        root_id: "om_root",
+        message_type: "text",
+        content: JSON.stringify({ text: "status" })
+      },
+      sender: {
+        sender_id: {
+          open_id: "ou_123"
+        }
+      }
+    }
+  });
+
+  await scheduledTasks[0]!();
+
+  assert.deepEqual(cardUpdates[0], {
+    messageId: "om_progress_interrupt",
+    title: "AgentBridge",
+    status: "Interrupted",
+    body: "Persistent Session Result\nAgent session: session-1\nStatus: interrupted\n\nstopped"
+  });
+});
+
 test("lark handler updates the shared progress card to failed when execution errors", async () => {
   const cardReplies: any[] = [];
   const cardUpdates: any[] = [];
