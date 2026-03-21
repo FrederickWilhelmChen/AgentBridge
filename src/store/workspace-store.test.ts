@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { createDatabase } from "./db.js";
 import { WorkspaceStore } from "./workspace-store.js";
 import type { Workspace } from "../domain/models.js";
@@ -9,7 +12,7 @@ function createWorkspace(overrides: Partial<Workspace> = {}): Workspace {
     workspaceId: "workspace-1",
     rootPath: "E:/repos/project-a",
     kind: "git_repo",
-    source: "scanned_git",
+    source: "manual",
     capabilities: {
       gitCapable: true,
       worktreeCapable: true
@@ -87,4 +90,30 @@ test("update fails loudly when the workspace does not exist", () => {
       }),
     /does not exist/i
   );
+});
+
+test("createDatabase persists file-backed workspace writes across close and reopen", () => {
+  const dbPath = path.join(os.tmpdir(), `agentbridge-workspace-commit-${Date.now()}.db`);
+  const database = createDatabase(dbPath);
+  const store = new WorkspaceStore(database);
+
+  store.create(
+    createWorkspace({
+      workspaceId: "workspace-commit",
+      rootPath: "E:/repos/commit-check",
+      createdAt: "2026-03-21T12:00:00.000Z",
+      updatedAt: "2026-03-21T12:00:00.000Z",
+      lastUsedAt: null
+    })
+  );
+
+  database.close();
+
+  const reopened = createDatabase(dbPath);
+  const reopenedStore = new WorkspaceStore(reopened);
+
+  assert.equal(reopenedStore.findById("workspace-commit")?.rootPath, "E:/repos/commit-check");
+
+  reopened.close();
+  fs.unlinkSync(dbPath);
 });

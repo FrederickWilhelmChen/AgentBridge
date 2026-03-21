@@ -35,12 +35,58 @@ test("fails execution-context migration when legacy rows cannot be mapped safely
 
     assert.throws(
       () => createDatabase(dbPath),
-      /required columns are missing: workspace_id/i
+      /required columns are missing: workspace_id, kind, path, managed, status, created_at, updated_at/i
     );
 
     const reopened = new Database(dbPath);
     const columns = reopened.prepare("PRAGMA table_info(execution_contexts)").all() as Array<{ name: string }>;
     assert.deepEqual(columns.map((column) => column.name), ["context_id"]);
+    assert.equal((reopened.prepare("SELECT COUNT(*) AS count FROM execution_contexts").get() as { count: number }).count, 1);
+    reopened.close();
+  });
+});
+
+test("fails execution-context migration when populated legacy rows are missing semantic columns", () => {
+  withTempDb((dbPath) => {
+    const database = new Database(dbPath);
+
+    database.exec(`
+      CREATE TABLE workspaces (
+        workspace_id TEXT PRIMARY KEY
+      );
+
+      CREATE TABLE execution_contexts (
+        context_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        managed INTEGER NOT NULL,
+        status TEXT NOT NULL
+      );
+
+      INSERT INTO workspaces (workspace_id) VALUES ('workspace-1');
+      INSERT INTO execution_contexts (
+        context_id, workspace_id, kind, managed, status
+      ) VALUES (
+        'context-1', 'workspace-1', 'main', 0, 'active'
+      );
+    `);
+
+    database.close();
+
+    assert.throws(
+      () => createDatabase(dbPath),
+      /required columns are missing: path, created_at, updated_at/i
+    );
+
+    const reopened = new Database(dbPath);
+    const columns = reopened.prepare("PRAGMA table_info(execution_contexts)").all() as Array<{ name: string }>;
+    assert.deepEqual(columns.map((column) => column.name), [
+      "context_id",
+      "workspace_id",
+      "kind",
+      "managed",
+      "status"
+    ]);
     assert.equal((reopened.prepare("SELECT COUNT(*) AS count FROM execution_contexts").get() as { count: number }).count, 1);
     reopened.close();
   });

@@ -8,6 +8,17 @@ type ForeignKeyRow = {
   to: string;
 };
 
+const EXECUTION_CONTEXT_REQUIRED_COLUMNS = [
+  "context_id",
+  "workspace_id",
+  "kind",
+  "path",
+  "managed",
+  "status",
+  "created_at",
+  "updated_at"
+] as const;
+
 function getTableColumns(database: SqliteDatabase, tableName: string): TableColumn[] {
   return database.prepare(`PRAGMA table_info(${tableName})`).all() as TableColumn[];
 }
@@ -39,6 +50,37 @@ function rebuildExecutionContextTable(database: SqliteDatabase) {
     .prepare("SELECT COUNT(*) AS count FROM execution_contexts")
     .get() as { count: number };
 
+  if (legacyRowCount.count > 0) {
+    const missingRequiredColumns = EXECUTION_CONTEXT_REQUIRED_COLUMNS.filter(
+      (columnName) => !legacyColumns.includes(columnName)
+    );
+
+    if (missingRequiredColumns.length > 0) {
+      throw new Error(
+        `Cannot safely migrate execution_contexts legacy rows because required columns are missing: ${missingRequiredColumns.join(", ")}`
+      );
+    }
+
+    const orphanCount = database
+      .prepare(`
+        SELECT COUNT(*) AS count
+        FROM execution_contexts
+        WHERE workspace_id IS NULL
+          OR NOT EXISTS (
+            SELECT 1
+            FROM workspaces
+            WHERE workspaces.workspace_id = execution_contexts.workspace_id
+          )
+      `)
+      .get() as { count: number };
+
+    if (orphanCount.count > 0) {
+      throw new Error(
+        `Cannot safely migrate ${orphanCount.count} orphaned execution_context row(s) without a matching workspace`
+      );
+    }
+  }
+
   database.exec(`
     ALTER TABLE execution_contexts RENAME TO execution_contexts_legacy;
 
@@ -56,45 +98,16 @@ function rebuildExecutionContextTable(database: SqliteDatabase) {
   `);
 
   if (legacyRowCount.count > 0) {
-    const missingRequiredColumns = ["context_id", "workspace_id"].filter(
-      (columnName) => !legacyColumns.includes(columnName)
-    );
-
-    if (missingRequiredColumns.length > 0) {
-      throw new Error(
-        `Cannot safely migrate execution_contexts legacy rows because required columns are missing: ${missingRequiredColumns.join(", ")}`
-      );
-    }
-
-    const orphanCount = database
-      .prepare(`
-        SELECT COUNT(*) AS count
-        FROM execution_contexts_legacy
-        WHERE workspace_id IS NULL
-          OR NOT EXISTS (
-            SELECT 1
-            FROM workspaces
-            WHERE workspaces.workspace_id = execution_contexts_legacy.workspace_id
-          )
-      `)
-      .get() as { count: number };
-
-    if (orphanCount.count > 0) {
-      throw new Error(
-        `Cannot safely migrate ${orphanCount.count} orphaned execution_context row(s) without a matching workspace`
-      );
-    }
-
     const selectExpressions = [
       "context_id",
       "workspace_id",
-      legacyColumns.includes("kind") ? "COALESCE(kind, 'main')" : "'main'",
-      legacyColumns.includes("path") ? "COALESCE(path, '')" : "''",
-      legacyColumns.includes("managed") ? "COALESCE(managed, 0)" : "0",
-      legacyColumns.includes("status") ? "COALESCE(status, 'active')" : "'active'",
+      "kind",
+      "path",
+      "managed",
+      "status",
       legacyColumns.includes("branch") ? "branch" : "NULL",
-      legacyColumns.includes("created_at") ? "COALESCE(created_at, '')" : "''",
-      legacyColumns.includes("updated_at") ? "COALESCE(updated_at, '')" : "''"
+      "created_at",
+      "updated_at"
     ];
 
     database.exec(`
@@ -171,71 +184,71 @@ export function createDatabase(dbPath: string) {
 
     database.exec(`
       CREATE TABLE IF NOT EXISTS sessions (
-      session_id TEXT PRIMARY KEY,
-      agent_type TEXT NOT NULL,
-      cwd TEXT NOT NULL,
-      mode TEXT NOT NULL,
-      status TEXT NOT NULL,
-      provider_session_id TEXT,
-      platform TEXT NOT NULL DEFAULT 'slack',
-      platform_channel_id TEXT NOT NULL DEFAULT '',
-      platform_thread_id TEXT,
-      platform_user_id TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL,
-      last_active_at TEXT NOT NULL,
-      last_run_id TEXT
+        session_id TEXT PRIMARY KEY,
+        agent_type TEXT NOT NULL,
+        cwd TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        status TEXT NOT NULL,
+        provider_session_id TEXT,
+        platform TEXT NOT NULL DEFAULT 'slack',
+        platform_channel_id TEXT NOT NULL DEFAULT '',
+        platform_thread_id TEXT,
+        platform_user_id TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        last_active_at TEXT NOT NULL,
+        last_run_id TEXT
       );
 
       CREATE TABLE IF NOT EXISTS runs (
-      run_id TEXT PRIMARY KEY,
-      session_id TEXT,
-      agent_type TEXT NOT NULL,
-      platform TEXT NOT NULL DEFAULT 'slack',
-      platform_channel_id TEXT NOT NULL DEFAULT '',
-      platform_thread_id TEXT,
-      platform_user_id TEXT NOT NULL DEFAULT '',
-      input_text TEXT NOT NULL,
-      status TEXT NOT NULL,
-      pid INTEGER,
-      started_at TEXT NOT NULL,
-      ended_at TEXT,
-      exit_code INTEGER,
-      output_tail TEXT NOT NULL,
-      raw_output TEXT NOT NULL DEFAULT '',
-      error_reason TEXT
+        run_id TEXT PRIMARY KEY,
+        session_id TEXT,
+        agent_type TEXT NOT NULL,
+        platform TEXT NOT NULL DEFAULT 'slack',
+        platform_channel_id TEXT NOT NULL DEFAULT '',
+        platform_thread_id TEXT,
+        platform_user_id TEXT NOT NULL DEFAULT '',
+        input_text TEXT NOT NULL,
+        status TEXT NOT NULL,
+        pid INTEGER,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        exit_code INTEGER,
+        output_tail TEXT NOT NULL,
+        raw_output TEXT NOT NULL DEFAULT '',
+        error_reason TEXT
       );
 
       CREATE TABLE IF NOT EXISTS inbound_message_receipts (
-      platform TEXT NOT NULL,
-      message_id TEXT NOT NULL,
-      status TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      completed_at TEXT,
-      PRIMARY KEY (platform, message_id)
+        platform TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        completed_at TEXT,
+        PRIMARY KEY (platform, message_id)
       );
 
       CREATE TABLE IF NOT EXISTS workspaces (
-      workspace_id TEXT PRIMARY KEY,
-      root_path TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      source TEXT NOT NULL,
-      git_capable INTEGER NOT NULL,
-      worktree_capable INTEGER NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      last_used_at TEXT
+        workspace_id TEXT PRIMARY KEY,
+        root_path TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        source TEXT NOT NULL,
+        git_capable INTEGER NOT NULL,
+        worktree_capable INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_used_at TEXT
       );
 
       CREATE TABLE IF NOT EXISTS execution_contexts (
-      context_id TEXT PRIMARY KEY,
-      workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id),
-      kind TEXT NOT NULL,
-      path TEXT NOT NULL,
-      managed INTEGER NOT NULL,
-      status TEXT NOT NULL,
-      branch TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+        context_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id),
+        kind TEXT NOT NULL,
+        path TEXT NOT NULL,
+        managed INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        branch TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       );
     `);
 
@@ -332,7 +345,7 @@ export function createDatabase(dbPath: string) {
     }
 
     ensureExecutionContextTable(database);
-
+    database.exec("COMMIT;");
     return database;
   } catch (error) {
     try {
