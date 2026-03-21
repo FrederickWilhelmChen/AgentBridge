@@ -79,7 +79,7 @@ export class ExecutionContextStore {
   }
 
   public update(context: ExecutionContext): ExecutionContext {
-    this.database
+    const result = this.database
       .prepare(`
         UPDATE execution_contexts
         SET kind = @kind,
@@ -99,6 +99,10 @@ export class ExecutionContextStore {
         branch: context.branch,
         updatedAt: context.updatedAt
       });
+
+    if (result.changes === 0) {
+      throw new Error(`Execution context ${context.contextId} does not exist`);
+    }
 
     const updated = this.findById(context.contextId);
     return updated ?? context;
