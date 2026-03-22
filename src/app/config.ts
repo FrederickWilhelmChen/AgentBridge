@@ -44,7 +44,6 @@ const slackEnvSchema = z.object({
 const larkEnvSchema = z.object({
   LARK_APP_ID: z.string().min(1),
   LARK_APP_SECRET: z.string().min(1),
-  LARK_ALLOWED_USER_ID: z.string().min(1),
   LARK_ENCRYPT_KEY: z.string().optional(),
   LARK_VERIFICATION_TOKEN: z.string().optional()
 });
@@ -142,7 +141,6 @@ export type AppConfig = {
   lark?: {
     appId: string;
     appSecret: string;
-    allowedUserId: string;
     encryptKey: string | null;
     verificationToken: string | null;
   };
@@ -205,7 +203,6 @@ export function loadConfig(): AppConfig {
     ? larkEnvSchema.parse({
         LARK_APP_ID: process.env.LARK_APP_ID,
         LARK_APP_SECRET: process.env.LARK_APP_SECRET,
-        LARK_ALLOWED_USER_ID: process.env.LARK_ALLOWED_USER_ID,
         LARK_ENCRYPT_KEY: process.env.LARK_ENCRYPT_KEY,
         LARK_VERIFICATION_TOKEN: process.env.LARK_VERIFICATION_TOKEN
       })
@@ -227,7 +224,6 @@ export function loadConfig(): AppConfig {
           lark: {
             appId: lark.LARK_APP_ID,
             appSecret: lark.LARK_APP_SECRET,
-            allowedUserId: lark.LARK_ALLOWED_USER_ID,
             encryptKey: lark.LARK_ENCRYPT_KEY ?? null,
             verificationToken: lark.LARK_VERIFICATION_TOKEN ?? null
           }

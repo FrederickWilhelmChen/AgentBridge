@@ -6,6 +6,7 @@ import type { IncomingPlatformMessage, MessageHandlingResult, SelectableWorkspac
 import { buildResumeProfile, buildRunOnceProfile } from "../runtime/agents.js";
 import { RuntimeLocks } from "../runtime/locks.js";
 import { ProcessManager } from "../runtime/process-manager.js";
+import { GitContextService } from "./git-context-service.js";
 import { SessionService } from "./session-service.js";
 import path from "node:path";
 
@@ -20,7 +21,8 @@ export class AgentBridgeService {
   public constructor(
     private readonly config: AppConfig,
     private readonly sessionService: SessionService,
-    private readonly processManager: ProcessManager
+    private readonly processManager: ProcessManager,
+    private readonly gitContextService?: GitContextService
   ) {}
 
   public async runOnce(params: {
@@ -354,6 +356,8 @@ export class AgentBridgeService {
   public async handleIncomingMessage(
     message: IncomingPlatformMessage
   ): Promise<MessageHandlingResult> {
+    const parsed = parseIntent(message.rawText);
+
     if (message.platformThreadId) {
       const threadSession = this.getPersistentSessionByThread(
         message.platform,
@@ -363,6 +367,10 @@ export class AgentBridgeService {
       );
 
       if (threadSession) {
+        if (parsed.kind === "control") {
+          return await this.handleSessionControlIntent(threadSession, parsed.intent);
+        }
+
         const result = await this.sendToPersistentSession({
           agentType: threadSession.agentType,
           cwd: threadSession.cwd,
@@ -382,8 +390,6 @@ export class AgentBridgeService {
       }
     }
 
-    const parsed = parseIntent(message.rawText);
-
     if (parsed.kind === "control") {
       if (parsed.intent.type === "interrupt") {
         const status = this.getSessionStatus(
@@ -400,6 +406,12 @@ export class AgentBridgeService {
           session: status.session
         };
       }
+
+      return {
+        kind: "info",
+        text: "This command only works inside an active thread session.",
+        session: null
+      };
     }
 
     const preferredAgent = this.config.runtime.defaultAgent;
@@ -444,6 +456,132 @@ export class AgentBridgeService {
     };
   }
 
+  private async handleSessionControlIntent(session: Session, intent: any): Promise<MessageHandlingResult> {
+    if (intent.type === "interrupt") {
+      const interrupted = session.lastRunId ? this.interruptRun(session.lastRunId) : false;
+      return {
+        kind: "info",
+        text: interrupted ? "Interrupt requested." : "Run is no longer active.",
+        session
+      };
+    }
+
+    if (intent.type === "list_contexts") {
+      return {
+        kind: "info",
+        text: this.formatContextList(session),
+        session
+      };
+    }
+
+    if (intent.type === "switch_context") {
+      const switched = this.switchSessionContextBySelector(session, intent.selector);
+      return {
+        kind: "info",
+        text: `Current context switched to ${switched.cwd}`,
+        session: switched
+      };
+    }
+
+    if (intent.type === "create_worktree") {
+      const switched = this.createAndSwitchManagedWorktree(session, intent.name);
+      return {
+        kind: "info",
+        text: `Managed worktree created and selected.\nCurrent context: ${switched.cwd}`,
+        session: switched
+      };
+    }
+
+    return {
+      kind: "info",
+      text: "Unsupported command.",
+      session
+    };
+  }
+
+  private formatContextList(session: Session): string {
+    const currentContext = this.resolveSessionExecutionContext(session);
+    const contexts = this.listSessionContexts(session);
+    if (contexts.length === 0) {
+      return "No execution contexts are available for this session.";
+    }
+
+    const lines = contexts.map((context) => {
+      const label = context.kind === "main"
+        ? "main"
+        : (context.branch || path.basename(context.path) || context.path);
+      const suffix = context.contextId === currentContext?.contextId ? " [current]" : "";
+      return `- ${label}: ${context.path}${suffix}`;
+    });
+
+    return `Contexts:\n${lines.join("\n")}`;
+  }
+
+  private listSessionContexts(session: Session) {
+    const workspace = session.workspaceId ? this.findWorkspaceById(session.workspaceId) : null;
+    if (!workspace) {
+      return [];
+    }
+
+    if (workspace.kind === "git_repo" && workspace.capabilities.worktreeCapable && this.gitContextService) {
+      return this.gitContextService.listWorkspaceContexts(workspace);
+    }
+
+    const contexts = this.listExecutionContextsByWorkspaceId(workspace.workspaceId);
+    if (contexts.length > 0) {
+      return contexts;
+    }
+
+    return [this.ensureMainContextForWorkspace(workspace)];
+  }
+
+  private switchSessionContextBySelector(session: Session, selector: string): Session {
+    const normalizedSelector = selector.trim().toLowerCase();
+    const contexts = this.listSessionContexts(session);
+
+    if (normalizedSelector === "main") {
+      const main = contexts.find((context) => context.kind === "main");
+      if (main) {
+        return this.switchSessionContext(session.sessionId, main.contextId);
+      }
+    }
+
+    const exactPath = contexts.find((context) => context.path.toLowerCase() === normalizedSelector);
+    if (exactPath) {
+      return this.switchSessionContext(session.sessionId, exactPath.contextId);
+    }
+
+    const exactBranch = contexts.find((context) => (context.branch ?? "").toLowerCase() === normalizedSelector);
+    if (exactBranch) {
+      return this.switchSessionContext(session.sessionId, exactBranch.contextId);
+    }
+
+    const exactBaseName = contexts.filter((context) => path.basename(context.path).toLowerCase() === normalizedSelector);
+    if (exactBaseName.length === 1) {
+      return this.switchSessionContext(session.sessionId, exactBaseName[0]!.contextId);
+    }
+
+    throw new Error(`Context '${selector}' was not found. Use /contexts to inspect available contexts.`);
+  }
+
+  private createAndSwitchManagedWorktree(session: Session, name: string): Session {
+    if (!session.workspaceId) {
+      throw new Error("This session is not bound to a workspace.");
+    }
+
+    const workspace = this.findWorkspaceById(session.workspaceId);
+    if (!workspace) {
+      throw new Error(`Workspace ${session.workspaceId} does not exist.`);
+    }
+
+    if (!this.gitContextService) {
+      throw new Error("Managed worktree support is not configured.");
+    }
+
+    const created = this.gitContextService.createManagedWorktree(workspace, name);
+    return this.switchSessionContext(session.sessionId, created.contextId);
+  }
+
   private ensureAllowedCwd(cwd: string): string {
     if (!this.config.runtime.allowedCwds.includes(cwd)) {
       throw new Error(`CWD is not allowed: ${cwd}`);
@@ -476,6 +614,36 @@ export class AgentBridgeService {
     }).getDefaultWorkspaceSelection;
 
     return typeof resolver === "function" ? resolver.call(this.sessionService) : null;
+  }
+
+  private findWorkspaceById(workspaceId: string) {
+    const resolver = (this.sessionService as SessionService & {
+      findWorkspaceById?: (workspaceId: string) => ReturnType<SessionService["findWorkspaceById"]>;
+    }).findWorkspaceById;
+
+    return typeof resolver === "function" ? resolver.call(this.sessionService, workspaceId) : null;
+  }
+
+  private listExecutionContextsByWorkspaceId(workspaceId: string) {
+    const resolver = (this.sessionService as SessionService & {
+      listExecutionContextsByWorkspaceId?: (workspaceId: string) => ReturnType<SessionService["listExecutionContextsByWorkspaceId"]>;
+    }).listExecutionContextsByWorkspaceId;
+
+    return typeof resolver === "function" ? resolver.call(this.sessionService, workspaceId) : [];
+  }
+
+  private ensureMainContextForWorkspace(workspace: NonNullable<ReturnType<SessionService["findWorkspaceById"]>>) {
+    const resolver = (this.sessionService as SessionService & {
+      ensureMainContextForWorkspace?: (
+        workspace: NonNullable<ReturnType<SessionService["findWorkspaceById"]>>
+      ) => ReturnType<SessionService["ensureMainContextForWorkspace"]>;
+    }).ensureMainContextForWorkspace;
+
+    if (typeof resolver !== "function") {
+      throw new Error("Execution context support is not configured");
+    }
+
+    return resolver.call(this.sessionService, workspace);
   }
 
   private buildPersistentSessionLockKey(params: {

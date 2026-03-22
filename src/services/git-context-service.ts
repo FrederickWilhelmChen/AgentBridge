@@ -15,8 +15,7 @@ type ParsedWorktree = {
 export class GitContextService {
   public constructor(
     private readonly sessionService: SessionService,
-    private readonly executionContextStore: ExecutionContextStore,
-    private readonly managedWorktreeRoot: string
+    private readonly executionContextStore: ExecutionContextStore
   ) {}
 
   public listWorkspaceContexts(workspace: Workspace): ExecutionContext[] {
@@ -28,14 +27,13 @@ export class GitContextService {
     this.ensureGitWorkspace(workspace);
 
     const targetPath = path.join(
-      path.resolve(this.managedWorktreeRoot),
-      sanitizeSegment(path.basename(workspace.rootPath)),
-      sanitizeSegment(name)
+      path.dirname(path.resolve(workspace.rootPath)),
+      `${sanitizeSegment(path.basename(workspace.rootPath))}-${sanitizeSegment(name)}`
     );
 
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
 
-    const branchName = `ab/${sanitizeSegment(workspace.workspaceId)}/${sanitizeSegment(name)}`;
+    const branchName = `worktree/${sanitizeSegment(name)}`;
     execFileSync(
       "git",
       ["-C", workspace.rootPath, "worktree", "add", targetPath, "-b", branchName, startPoint],
@@ -59,7 +57,7 @@ export class GitContextService {
       path: path.resolve(item.path),
       kind: path.resolve(item.path) === path.resolve(workspace.rootPath) ? "main" as const : "worktree" as const,
       branch: item.branch,
-      managed: this.isManagedPath(item.path),
+      managed: this.isManagedPath(item.path, workspace.rootPath),
       status: "active" as const
     }));
 
@@ -114,11 +112,18 @@ export class GitContextService {
     });
   }
 
-  private isManagedPath(worktreePath: string): boolean {
-    const normalizedManagedRoot = ensureTrailingSeparator(path.resolve(this.managedWorktreeRoot));
+  private isManagedPath(worktreePath: string, workspaceRoot: string): boolean {
+    const normalizedManagedRoot = ensureTrailingSeparator(path.dirname(path.resolve(workspaceRoot)));
     const normalizedWorktreePath = ensureTrailingSeparator(path.resolve(worktreePath));
 
-    return normalizedWorktreePath.startsWith(normalizedManagedRoot);
+    if (!normalizedWorktreePath.startsWith(normalizedManagedRoot)) {
+      return false;
+    }
+
+    const worktreeBaseName = path.basename(path.resolve(worktreePath)).toLowerCase();
+    const workspaceBaseName = sanitizeSegment(path.basename(path.resolve(workspaceRoot))).toLowerCase();
+
+    return worktreeBaseName.startsWith(`${workspaceBaseName}-`);
   }
 
   private ensureGitWorkspace(workspace: Workspace) {

@@ -155,6 +155,39 @@ test("loadConfig accepts workspace parents without manual workspaces once discov
   }
 });
 
+test("loadConfig supports Lark without LARK_ALLOWED_USER_ID", () => {
+  const previousEnv = { ...process.env };
+
+  process.env = {
+    ...previousEnv,
+    AGENTBRIDGE_ENABLED_PLATFORMS: "lark",
+    AGENTBRIDGE_DB_PATH: "./agentbridge.db",
+    AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS: "E:/repos",
+    AGENTBRIDGE_DEFAULT_AGENT: "codex",
+    AGENTBRIDGE_CLAUDE_COMMAND: "claude",
+    AGENTBRIDGE_CLAUDE_ARGS: "-p --output-format json",
+    AGENTBRIDGE_CLAUDE_RESUME_ARGS: "-p --output-format json -r {sessionId}",
+    AGENTBRIDGE_CLAUDE_OUTPUT_MODE: "claude_json",
+    AGENTBRIDGE_CODEX_COMMAND: "node",
+    AGENTBRIDGE_CODEX_ARGS: "node_modules/@openai/codex/bin/codex.js exec --skip-git-repo-check -",
+    AGENTBRIDGE_CODEX_RESUME_ARGS: "node_modules/@openai/codex/bin/codex.js exec resume {sessionId} --skip-git-repo-check -",
+    AGENTBRIDGE_CODEX_OUTPUT_MODE: "codex_text",
+    LARK_APP_ID: "cli_app",
+    LARK_APP_SECRET: "secret"
+  };
+
+  try {
+    delete process.env.LARK_ALLOWED_USER_ID;
+
+    const config = loadConfig();
+
+    assert.equal(config.lark?.appId, "cli_app");
+    assert.equal(config.lark?.appSecret, "secret");
+  } finally {
+    process.env = previousEnv;
+  }
+});
+
 test("loadConfig preserves skip-git-repo-check for codex resume args", () => {
   const previousEnv = { ...process.env };
 

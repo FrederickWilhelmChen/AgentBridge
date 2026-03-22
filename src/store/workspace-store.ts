@@ -120,4 +120,12 @@ export class WorkspaceStore {
     const updated = this.findById(workspace.workspaceId);
     return updated ?? workspace;
   }
+
+  public delete(workspaceId: string): boolean {
+    const result = this.database
+      .prepare("DELETE FROM workspaces WHERE workspace_id = ?")
+      .run(workspaceId);
+
+    return result.changes > 0;
+  }
 }

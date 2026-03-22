@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { createDatabase } from "../store/db.js";
+import { ExecutionContextStore } from "../store/execution-context-store.js";
 import { WorkspaceStore } from "../store/workspace-store.js";
 import { SessionStore } from "../store/session-store.js";
 import { RunStore } from "../store/run-store.js";
@@ -115,5 +116,137 @@ test("registers manual and marker-file plain workspaces as plain_dir without dup
         source: "manual"
       }
     ]
+  );
+});
+
+test("scans only the workspace parent and its direct children", () => {
+  const parentDir = createTempDir("agentbridge-scan-depth-parent-");
+  const directRepoRoot = path.join(parentDir, "project-a");
+  const nestedRepoRoot = path.join(parentDir, "runtime", "wt-test-sample");
+
+  fs.mkdirSync(directRepoRoot, { recursive: true });
+  runGit(["init", "--initial-branch=main"], directRepoRoot);
+  runGit(["config", "user.name", "AgentBridge"], directRepoRoot);
+  runGit(["config", "user.email", "agentbridge@example.com"], directRepoRoot);
+  writeFile(path.join(directRepoRoot, "README.md"), "# project-a\n");
+  runGit(["add", "README.md"], directRepoRoot);
+  runGit(["commit", "-m", "initial"], directRepoRoot);
+
+  fs.mkdirSync(nestedRepoRoot, { recursive: true });
+  runGit(["init", "--initial-branch=main"], nestedRepoRoot);
+  runGit(["config", "user.name", "AgentBridge"], nestedRepoRoot);
+  runGit(["config", "user.email", "agentbridge@example.com"], nestedRepoRoot);
+  writeFile(path.join(nestedRepoRoot, "README.md"), "# wt-test-sample\n");
+  runGit(["add", "README.md"], nestedRepoRoot);
+  runGit(["commit", "-m", "initial"], nestedRepoRoot);
+
+  const database = createDatabase(":memory:");
+  const workspaceStore = new WorkspaceStore(database);
+  const sessionService = new SessionService(
+    new SessionStore(database),
+    new RunStore(database),
+    workspaceStore
+  );
+  const discovery = new WorkspaceDiscoveryService(sessionService);
+
+  const result = discovery.refresh({
+    allowedWorkspaceParents: [parentDir],
+    manualWorkspaces: []
+  });
+
+  assert.deepEqual(
+    result.workspaces.map((workspace) => workspace.rootPath),
+    [directRepoRoot]
+  );
+});
+
+test("removes workspaces and execution contexts that are no longer discovered", () => {
+  const parentDir = createTempDir("agentbridge-discovery-delete-parent-");
+  const repoRoot = path.join(parentDir, "project-a");
+
+  fs.mkdirSync(repoRoot, { recursive: true });
+  runGit(["init", "--initial-branch=main"], repoRoot);
+  runGit(["config", "user.name", "AgentBridge"], repoRoot);
+  runGit(["config", "user.email", "agentbridge@example.com"], repoRoot);
+  writeFile(path.join(repoRoot, "README.md"), "# project-a\n");
+  runGit(["add", "README.md"], repoRoot);
+  runGit(["commit", "-m", "initial"], repoRoot);
+
+  const database = createDatabase(":memory:");
+  const workspaceStore = new WorkspaceStore(database);
+  const executionContextStore = new ExecutionContextStore(database);
+  const sessionService = new SessionService(
+    new SessionStore(database),
+    new RunStore(database),
+    workspaceStore,
+    executionContextStore
+  );
+  const discovery = new WorkspaceDiscoveryService(sessionService);
+
+  const first = discovery.refresh({
+    allowedWorkspaceParents: [parentDir],
+    manualWorkspaces: []
+  });
+
+  const workspace = first.workspaces[0];
+  if (!workspace) {
+    throw new Error("Expected discovered workspace");
+  }
+
+  executionContextStore.create({
+    contextId: "context-1",
+    workspaceId: workspace.workspaceId,
+    kind: "main",
+    path: workspace.rootPath,
+    managed: false,
+    status: "active",
+    branch: null,
+    createdAt: "2026-03-23T00:00:00.000Z",
+    updatedAt: "2026-03-23T00:00:00.000Z"
+  });
+
+  fs.rmSync(repoRoot, { recursive: true, force: true });
+
+  const second = discovery.refresh({
+    allowedWorkspaceParents: [parentDir],
+    manualWorkspaces: []
+  });
+
+  assert.deepEqual(second.workspaces, []);
+  assert.deepEqual(workspaceStore.list(), []);
+  assert.deepEqual(executionContextStore.listByWorkspaceId(workspace.workspaceId), []);
+});
+
+test("deduplicates sibling worktrees back to the main repository workspace", () => {
+  const parentDir = createTempDir("agentbridge-sibling-worktree-parent-");
+  const repoRoot = path.join(parentDir, "project-a");
+  const siblingWorktreeRoot = path.join(parentDir, "project-a-review-auth");
+
+  fs.mkdirSync(repoRoot, { recursive: true });
+  runGit(["init", "--initial-branch=main"], repoRoot);
+  runGit(["config", "user.name", "AgentBridge"], repoRoot);
+  runGit(["config", "user.email", "agentbridge@example.com"], repoRoot);
+  writeFile(path.join(repoRoot, "README.md"), "# project-a\n");
+  runGit(["add", "README.md"], repoRoot);
+  runGit(["commit", "-m", "initial"], repoRoot);
+  runGit(["worktree", "add", siblingWorktreeRoot, "-b", "review-auth"], repoRoot);
+
+  const database = createDatabase(":memory:");
+  const workspaceStore = new WorkspaceStore(database);
+  const sessionService = new SessionService(
+    new SessionStore(database),
+    new RunStore(database),
+    workspaceStore
+  );
+  const discovery = new WorkspaceDiscoveryService(sessionService);
+
+  const result = discovery.refresh({
+    allowedWorkspaceParents: [parentDir],
+    manualWorkspaces: []
+  });
+
+  assert.deepEqual(
+    result.workspaces.map((workspace) => workspace.rootPath),
+    [repoRoot]
   );
 });

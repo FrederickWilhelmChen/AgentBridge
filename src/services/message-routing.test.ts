@@ -183,12 +183,94 @@ test("interrupts the latest active run for interrupt control intents", async () 
     platformChannelId: "D123",
     platformThreadId: null,
     messageId: "m5",
-    rawText: "stop"
+    rawText: "/stop"
   });
 
   assert.equal(interruptedRunId, "run-active");
   assert.equal(result.kind, "info");
   assert.match(result.text, /Interrupt requested/);
+});
+
+test("treats bare stop as a normal prompt instead of interrupting", async () => {
+  const service = createService();
+  let interrupted = false;
+
+  service.getSessionStatus = (() => ({ session: null, run: null })) as typeof service.getSessionStatus;
+  service.interruptRun = (() => {
+    interrupted = true;
+    return true;
+  }) as typeof service.interruptRun;
+  service.runOnce = (async (params) => ({
+    run: createRun({ inputText: params.message }),
+    session: null
+  })) as typeof service.runOnce;
+
+  const result = await service.handleIncomingMessage({
+    platform: "slack",
+    platformUserId: "U123",
+    platformChannelId: "D123",
+    platformThreadId: null,
+    messageId: "m5b",
+    rawText: "stop"
+  });
+
+  assert.equal(interrupted, false);
+  assert.equal(result.kind, "execution");
+  assert.equal(result.run.inputText, "stop");
+});
+
+test("lists thread contexts for slash context commands", async () => {
+  const service = createService();
+  (service as any).getPersistentSessionByThread = () =>
+    createSession({
+      platformThreadId: "thread-1",
+      workspaceId: "workspace-1",
+      currentContextId: "context-main"
+    });
+  (service as any).handleSessionControlIntent = async () => ({
+    kind: "info",
+    text: "Contexts:\n- main",
+    session: createSession()
+  });
+
+  const result = await service.handleIncomingMessage({
+    platform: "slack",
+    platformUserId: "U123",
+    platformChannelId: "D123",
+    platformThreadId: "thread-1",
+    messageId: "m-contexts",
+    rawText: "/contexts"
+  });
+
+  assert.equal(result.kind, "info");
+  assert.match(result.text, /Contexts:/);
+});
+
+test("lists thread contexts for dot context commands", async () => {
+  const service = createService();
+  (service as any).getPersistentSessionByThread = () =>
+    createSession({
+      platformThreadId: "thread-1",
+      workspaceId: "workspace-1",
+      currentContextId: "context-main"
+    });
+  (service as any).handleSessionControlIntent = async () => ({
+    kind: "info",
+    text: "Contexts:\n- main",
+    session: createSession()
+  });
+
+  const result = await service.handleIncomingMessage({
+    platform: "slack",
+    platformUserId: "U123",
+    platformChannelId: "D123",
+    platformThreadId: "thread-1",
+    messageId: "m-contexts-dot",
+    rawText: ".contexts"
+  });
+
+  assert.equal(result.kind, "info");
+  assert.match(result.text, /Contexts:/);
 });
 
 test("uses default agent even when prompt mentions another agent", async () => {

@@ -21,8 +21,7 @@ test("loadConfig supports Lark-only startup", () => {
     AGENTBRIDGE_CODEX_RESUME_ARGS: "codex resume {sessionId} -",
     AGENTBRIDGE_CODEX_OUTPUT_MODE: "codex_text",
     LARK_APP_ID: "cli_app",
-    LARK_APP_SECRET: "secret",
-    LARK_ALLOWED_USER_ID: "ou_123"
+    LARK_APP_SECRET: "secret"
   };
 
   try {
@@ -30,7 +29,6 @@ test("loadConfig supports Lark-only startup", () => {
 
     assert.deepEqual(config.runtime.enabledPlatforms, ["lark"]);
     assert.equal(config.lark?.appId, "cli_app");
-    assert.equal(config.lark?.allowedUserId, "ou_123");
     assert.equal(config.slack, undefined);
   } finally {
     process.env = previousEnv;
@@ -467,10 +465,10 @@ test("lark handler requires an exact agent choice before moving to workspace sel
   assert.match(JSON.parse(replies[2]?.content.content ?? "{}").text ?? "", /choose workspace/i);
 });
 
-test("lark handler uses exact paths or unique label fragments for large workspace lists", async () => {
+test("lark handler uses exact paths or unique label fragments for workspace lists larger than fifty entries", async () => {
   const replies: any[] = [];
   const createdSessions: any[] = [];
-  const allowedWorkspaces = Array.from({ length: 25 }, (_, index) => ({
+  const allowedWorkspaces = Array.from({ length: 55 }, (_, index) => ({
     rootPath: `E:/repos/project-${index + 1}`,
     label: `project-${index + 1}`,
     kind: "git_repo" as const
@@ -551,15 +549,18 @@ test("lark handler uses exact paths or unique label fragments for large workspac
         chat_id: "oc_123",
         root_id: "om_large_start",
         message_type: "text",
-        content: JSON.stringify({ text: "project-25" })
+        content: JSON.stringify({ text: "project-55" })
       }
     }
   });
 
+  const workspacePrompt = JSON.parse(replies[1]?.content.content ?? "{}").text ?? "";
+  assert.match(workspacePrompt, /project-50/i);
+  assert.doesNotMatch(workspacePrompt, /project-51/i);
   assert.match(JSON.parse(replies[1]?.content.content ?? "{}").text ?? "", /unique label fragment/i);
   assert.deepEqual(createdSessions[0], {
     agentType: "codex",
-    cwd: "E:/repos/project-25",
+    cwd: "E:/repos/project-55",
     platform: "lark",
     userId: "ou_123",
     channelId: "oc_123",
@@ -918,6 +919,72 @@ test("lark handler locks an initialized thread so non-stop messages are always f
   assert.equal(forwarded[0]?.platformThreadId, "om_root");
   assert.equal(forwarded[0]?.rawText, "use codex and switch to /tmp then fix this");
   assert.equal(replies[0]?.messageId, "om_locked_prompt");
+});
+
+test("lark handler forwards bare stop as a normal prompt inside an initialized thread", async () => {
+  const replies: any[] = [];
+  const forwarded: any[] = [];
+  const scheduledTasks: Array<() => Promise<void>> = [];
+
+  const handler = createLarkEventHandler({
+    allowedUserId: "ou_123",
+    agentBridgeService: {
+      getPersistentSessionByThread() {
+        return {
+          sessionId: "session-1",
+          agentType: "claude",
+          cwd: "/Users/test/repo",
+          lastRunId: "run-1"
+        };
+      },
+      async handleIncomingMessage(params: any) {
+        forwarded.push(params);
+        return {
+          kind: "info",
+          text: "handled",
+          session: null
+        };
+      }
+    } as any,
+    client: {
+      async replyToMessage(messageId: string, content: any) {
+        replies.push({ messageId, content });
+      }
+    } as any,
+    logger: { info() {}, warn() {}, error() {} } as any,
+    schedule(task: () => Promise<void>) {
+      scheduledTasks.push(task);
+    }
+  } as any);
+
+  await handler({
+    schema: "2.0",
+    header: {
+      event_type: "im.message.receive_v1",
+      event_id: "evt_locked_stop_prompt",
+      create_time: "171"
+    },
+    event: {
+      message: {
+        message_id: "om_locked_stop_prompt",
+        chat_id: "oc_123",
+        root_id: "om_root",
+        message_type: "text",
+        content: JSON.stringify({ text: "stop" })
+      },
+      sender: {
+        sender_id: {
+          open_id: "ou_123"
+        }
+      }
+    }
+  });
+
+  assert.equal(scheduledTasks.length, 1);
+  await scheduledTasks[0]!();
+  assert.equal(forwarded.length, 1);
+  assert.equal(forwarded[0]?.rawText, "stop");
+  assert.equal(replies[0]?.messageId, "om_locked_stop_prompt");
 });
 
 test("lark handler expires duplicate event reservations even when the scheduled task does not complete", async () => {

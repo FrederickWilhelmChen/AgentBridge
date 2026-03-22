@@ -29,7 +29,6 @@ export function createLarkController(
     proxyUrl: config.runtime.httpsProxy ?? config.runtime.httpProxy
   });
   const messageHandler = createLarkMessageHandler({
-    allowedUserId: larkConfig.allowedUserId,
     allowedWorkspaces: agentBridgeService.listSelectableWorkspaces?.() ?? config.runtime.allowedCwds.map((cwd) => ({
       rootPath: cwd,
       label: cwd,

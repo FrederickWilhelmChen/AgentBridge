@@ -188,6 +188,14 @@ export class SessionService {
     return this.workspaceStore.list().find((workspace) => workspace.rootPath === rootPath) ?? null;
   }
 
+  public findWorkspaceById(workspaceId: string): Workspace | null {
+    if (!this.workspaceStore) {
+      return null;
+    }
+
+    return this.workspaceStore.findById(workspaceId);
+  }
+
   public upsertWorkspace(workspace: Workspace): Workspace {
     if (!this.workspaceStore) {
       throw new Error("Workspace store is not configured");
@@ -203,6 +211,15 @@ export class SessionService {
       workspaceId: existing.workspaceId,
       createdAt: existing.createdAt
     });
+  }
+
+  public deleteWorkspace(workspaceId: string): boolean {
+    if (!this.workspaceStore) {
+      throw new Error("Workspace store is not configured");
+    }
+
+    this.executionContextStore?.deleteByWorkspaceId(workspaceId);
+    return this.workspaceStore.delete(workspaceId);
   }
 
   public resolveWorkspaceByRootPath(rootPath: string): Workspace | null {
@@ -288,6 +305,14 @@ export class SessionService {
       workspace,
       context: this.ensureMainContextForWorkspace(workspace)
     };
+  }
+
+  public listExecutionContextsByWorkspaceId(workspaceId: string): ExecutionContext[] {
+    if (!this.executionContextStore) {
+      return [];
+    }
+
+    return this.executionContextStore.listByWorkspaceId(workspaceId);
   }
 
   public switchExecutionContext(sessionId: string, contextId: string): Session {

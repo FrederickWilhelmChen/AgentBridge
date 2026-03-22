@@ -20,15 +20,28 @@ type WorkspaceDiscoveryResult = {
 };
 
 const MARKER_FILE_PATH = path.join(".agentbridge", "workspace.json");
-const MAX_SCAN_DEPTH = 3;
+const MAX_SCAN_DEPTH = 1;
+const SKIPPED_DIRECTORY_NAMES = new Set([
+  ".git",
+  "node_modules",
+  ".pnpm-store",
+  ".yarn",
+  ".venv",
+  "venv",
+  "__pycache__",
+  ".gradle",
+  "build",
+  "target"
+]);
 
 export class WorkspaceDiscoveryService {
   public constructor(private readonly sessionService: SessionService) {}
 
   public refresh(config: WorkspaceDiscoveryConfig): WorkspaceDiscoveryResult {
     const discovered = new Map<string, Workspace>();
+    const existingWorkspaces = this.sessionService.listWorkspaces();
     const existingByRootPath = new Map(
-      this.sessionService.listWorkspaces().map((workspace) => [workspace.rootPath, workspace] as const)
+      existingWorkspaces.map((workspace) => [workspace.rootPath, workspace] as const)
     );
 
     const registerWorkspace = (
@@ -103,6 +116,12 @@ export class WorkspaceDiscoveryService {
       });
     }
 
+    for (const existing of existingWorkspaces) {
+      if (!discovered.has(existing.rootPath)) {
+        this.sessionService.deleteWorkspace(existing.workspaceId);
+      }
+    }
+
     return {
       workspaces: Array.from(discovered.values()).sort((left, right) =>
         left.rootPath.localeCompare(right.rootPath)
@@ -136,7 +155,7 @@ function walkDirectories(rootPath: string, maxDepth: number): string[] {
         continue;
       }
 
-      if (entry.name === ".git" || entry.name === "node_modules") {
+      if (SKIPPED_DIRECTORY_NAMES.has(entry.name)) {
         continue;
       }
 

@@ -42,10 +42,10 @@ type PendingThreadSetup =
   | { stage: "choose_agent" }
   | { stage: "choose_workspace"; agentType: AgentType };
 
-const LARK_WORKSPACE_LIST_LIMIT = 20;
+const LARK_WORKSPACE_LIST_LIMIT = 50;
 
 type HandlerArgs = {
-  allowedUserId: string;
+  allowedUserId?: string;
   allowedWorkspaces?: SelectableWorkspace[];
   allowedCwds?: string[];
   agentBridgeService: {
@@ -152,11 +152,6 @@ export function createLarkMessageHandler(
     args.onEventReceived?.();
     args.logger.info({ messageId, chatId, userId, threadId }, "Handling Lark message event");
 
-    if (userId !== args.allowedUserId) {
-      args.logger.warn({ userId, allowedUserId: args.allowedUserId }, "Rejected Lark message from unauthorized user");
-      return;
-    }
-
     if (args.messageDeduper && !args.messageDeduper.tryBegin("lark", messageId)) {
       args.logger.info({ messageId }, "Skipping duplicate Lark message");
       return;
@@ -186,18 +181,6 @@ export function createLarkMessageHandler(
 
       const threadSession = args.agentBridgeService.getPersistentSessionByThread?.("lark", userId, chatId, threadId) ?? null;
       if (threadSession) {
-        if (normalizedText === "stop") {
-          const interrupted = threadSession.lastRunId
-            ? (args.agentBridgeService.interruptRun?.(threadSession.lastRunId) ?? false)
-            : false;
-          await args.client.replyToMessage(
-            messageId,
-            buildLarkTextMessage(interrupted ? "Interrupt requested." : "Run is no longer active.")
-          );
-          args.messageDeduper?.markCompleted("lark", messageId);
-          return;
-        }
-
         if (!args.agentBridgeService.handleIncomingMessage) {
           throw new Error("Lark thread execution requires handleIncomingMessage support");
         }
@@ -497,7 +480,7 @@ function formatInitializedReply(
   session: { sessionId: string; agentType: AgentType; cwd: string },
   workspaceRoot: string
 ): string {
-  return `Initialized.\nAgent: ${session.agentType}\nWorkspace: ${workspaceRoot}\nCurrent context: ${session.cwd}\nSession: ${session.sessionId}\n\nSend prompts in this thread.\nUse \`stop\` to interrupt.`;
+  return `Initialized.\nAgent: ${session.agentType}\nWorkspace: ${workspaceRoot}\nCurrent context: ${session.cwd}\nSession: ${session.sessionId}\n\nSend prompts in this thread.\nUse \`/stop\` to interrupt.\nUse \`/contexts\` to inspect contexts.`;
 }
 
 function getSelectableWorkspaces(args: HandlerArgs): SelectableWorkspace[] {
