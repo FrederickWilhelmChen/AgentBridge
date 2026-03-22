@@ -130,4 +130,12 @@ export class ExecutionContextStore {
     const updated = this.findById(context.contextId);
     return updated ?? context;
   }
+
+  public deleteByWorkspaceId(workspaceId: string): number {
+    const result = this.database
+      .prepare("DELETE FROM execution_contexts WHERE workspace_id = ?")
+      .run(workspaceId);
+
+    return result.changes;
+  }
 }

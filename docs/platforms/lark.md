@@ -22,7 +22,6 @@ AGENTBRIDGE_ENABLED_PLATFORMS=lark
 
 LARK_APP_ID=cli_xxxxx
 LARK_APP_SECRET=your-app-secret
-LARK_ALLOWED_USER_ID=ou_xxxxx
 ```
 
 可选项：  
@@ -63,8 +62,8 @@ The recommended flow is topic mode:
    Send a root message such as:
    - `start`
    - `@Bot start`
-2. AgentBridge 会在初始化阶段引导你选择一次 agent 和 cwd  
-   AgentBridge will guide you through choosing agent and cwd once during setup.
+2. AgentBridge 会在初始化阶段引导你选择一次 agent 和 workspace  
+   AgentBridge will guide you through choosing agent and workspace once during setup.
 3. 初始化完成后，后续都在同一个话题里继续  
    After setup, continue inside the same topic.
 4. AgentBridge 会先发送一张处理中共享卡片  
@@ -98,8 +97,8 @@ npm run dev
    Continue inside the same topic:
    - 完成 agent 选择  
      Choose the agent.
-   - 完成 cwd 选择  
-     Choose the cwd.
+   - 完成 workspace 选择  
+     Choose the workspace.
    - 然后开始发送真实任务  
      Then start sending real prompts.
 5. 确认先看到一张处理中卡片  
@@ -111,8 +110,6 @@ npm run dev
 
 - `AGENTBRIDGE_ENABLED_PLATFORMS` 里没有 `lark`  
   `AGENTBRIDGE_ENABLED_PLATFORMS` does not include `lark`.
-- `LARK_ALLOWED_USER_ID` 配错  
-  `LARK_ALLOWED_USER_ID` is wrong.
 - 飞书后台没有配成长连接模式  
   The Feishu app is not configured for long-connection mode.
 - 本机需要代理但没有配置代理  

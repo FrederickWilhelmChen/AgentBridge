@@ -12,6 +12,7 @@ import { WorkspaceStore } from "../store/workspace-store.js";
 import { ExecutionContextStore } from "../store/execution-context-store.js";
 import { SessionService } from "../services/session-service.js";
 import { WorkspaceDiscoveryService } from "../services/workspace-discovery-service.js";
+import { GitContextService } from "../services/git-context-service.js";
 import { ProcessManager } from "../runtime/process-manager.js";
 import { ImageCache } from "../runtime/image-cache.js";
 import { AgentBridgeService } from "../services/agent-bridge-service.js";
@@ -35,6 +36,7 @@ async function main() {
     executionContextStore
   );
   const workspaceDiscoveryService = new WorkspaceDiscoveryService(sessionService);
+  const gitContextService = new GitContextService(sessionService, executionContextStore);
   const processManager = new ProcessManager(logger, {
     httpProxy: config.runtime.httpProxy,
     httpsProxy: config.runtime.httpsProxy
@@ -42,7 +44,7 @@ async function main() {
   const imageCache = new ImageCache({
     cacheDir: path.join(path.dirname(config.database.path), ".image-cache")
   });
-  const agentBridgeService = new AgentBridgeService(config, sessionService, processManager);
+  const agentBridgeService = new AgentBridgeService(config, sessionService, processManager, gitContextService);
   const cleanupTasks: Array<() => Promise<void> | void> = [];
   await imageCache.cleanupExpiredFiles();
   const imageCleanupTimer = setInterval(async () => {

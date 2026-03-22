@@ -66,7 +66,6 @@ function createGitWorkspace() {
 
 test("lists git workspace contexts as main plus linked worktrees and marks external worktrees unmanaged", () => {
   const { repoRoot, externalWorktree } = createGitWorkspace();
-  const managedRoot = createTempDir("agentbridge-managed-worktrees-");
   const database = createDatabase(":memory:");
   const workspaceStore = new WorkspaceStore(database);
   const executionContextStore = new ExecutionContextStore(database);
@@ -77,7 +76,7 @@ test("lists git workspace contexts as main plus linked worktrees and marks exter
     executionContextStore
   );
   const workspace = workspaceStore.create(createWorkspace(repoRoot));
-  const service = new GitContextService(sessionService, executionContextStore, managedRoot);
+  const service = new GitContextService(sessionService, executionContextStore);
 
   const contexts = service.listWorkspaceContexts(workspace);
 
@@ -94,9 +93,8 @@ test("lists git workspace contexts as main plus linked worktrees and marks exter
   );
 });
 
-test("creates managed worktrees under the configured root and marks them managed", () => {
+test("creates managed worktrees as sibling directories and marks them managed", () => {
   const { repoRoot } = createGitWorkspace();
-  const managedRoot = createTempDir("agentbridge-managed-worktrees-");
   const database = createDatabase(":memory:");
   const workspaceStore = new WorkspaceStore(database);
   const executionContextStore = new ExecutionContextStore(database);
@@ -107,19 +105,24 @@ test("creates managed worktrees under the configured root and marks them managed
     executionContextStore
   );
   const workspace = workspaceStore.create(createWorkspace(repoRoot));
-  const service = new GitContextService(sessionService, executionContextStore, managedRoot);
+  const service = new GitContextService(sessionService, executionContextStore);
 
   const created = service.createManagedWorktree(workspace, "review-auth");
+  const expectedPath = path.join(path.dirname(repoRoot), `${path.basename(repoRoot)}-review-auth`);
+  const createdBranch = execFileSync("git", ["-C", created.path, "branch", "--show-current"], {
+    encoding: "utf8",
+    stdio: "pipe"
+  }).trim();
 
   assert.equal(created.kind, "worktree");
   assert.equal(created.managed, true);
-  assert.match(created.path, new RegExp(`^${escapeRegExp(path.resolve(managedRoot))}`));
+  assert.equal(created.path, path.resolve(expectedPath));
+  assert.equal(createdBranch, "worktree/review-auth");
   assert.equal(fs.existsSync(created.path), true);
 });
 
 test("switching context only changes the session current execution context", () => {
   const { repoRoot } = createGitWorkspace();
-  const managedRoot = createTempDir("agentbridge-managed-worktrees-");
   const database = createDatabase(":memory:");
   const workspaceStore = new WorkspaceStore(database);
   const executionContextStore = new ExecutionContextStore(database);
@@ -130,7 +133,7 @@ test("switching context only changes the session current execution context", () 
     executionContextStore
   );
   const workspace = workspaceStore.create(createWorkspace(repoRoot));
-  const service = new GitContextService(sessionService, executionContextStore, managedRoot);
+  const service = new GitContextService(sessionService, executionContextStore);
   const mainContext = service.listWorkspaceContexts(workspace)[0];
 
   if (!mainContext) {
@@ -155,7 +158,3 @@ test("switching context only changes the session current execution context", () 
   assert.equal(switched.cwd, worktreeContext.path);
   assert.equal(switched.providerSessionId, session.providerSessionId);
 });
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}

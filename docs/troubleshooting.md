@@ -169,8 +169,6 @@ Check these first:
 
 - `LARK_APP_ID` 和 `LARK_APP_SECRET` 是否正确  
   `LARK_APP_ID` and `LARK_APP_SECRET` are correct.
-- `LARK_ALLOWED_USER_ID` 是否正确  
-  `LARK_ALLOWED_USER_ID` is correct.
 - `AGENTBRIDGE_ENABLED_PLATFORMS` 是否包含 `lark`  
   `AGENTBRIDGE_ENABLED_PLATFORMS` includes `lark`.
 - 飞书应用是否配置成长连接模式  

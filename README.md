@@ -110,9 +110,10 @@ npm run dev
 ## 重要配置说明
 
 - `AGENTBRIDGE_DB_PATH` 是数据库文件路径，不需要手动创建数据库文件
-- `AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS` 用来扫描 Git repo workspace，并按同一仓库去重
+- `AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS` 用来扫描父目录本身和一级子目录中的 Git repo workspace，并按同一仓库去重
 - `AGENTBRIDGE_MANUAL_WORKSPACES` 用来显式登记普通目录，例如笔记、资料或日常工作目录
 - 没有 Git 的机器仍然可以只使用 plain workspace
+- managed worktree 会创建在主仓库同级目录，命名为 `{仓库名}-{worktree名}`，分支名形如 `worktree/review-auth`
 - `AGENTBRIDGE_HTTP_PROXY` 和 `AGENTBRIDGE_HTTPS_PROXY` 是可选项，只有本机必须走代理时才填写
 - `AGENTBRIDGE_CLAUDE_COMMAND` 是 Claude 可执行文件路径
 - `AGENTBRIDGE_CLAUDE_ARGS`、`AGENTBRIDGE_CLAUDE_RESUME_ARGS`、`AGENTBRIDGE_CODEX_ARGS`、`AGENTBRIDGE_CODEX_RESUME_ARGS` 一般不需要修改，除非你明确在做兼容性调整

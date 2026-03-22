@@ -11,13 +11,13 @@ const envExamplePath = path.join(rootDir, ".env.example");
 const envPath = path.join(rootDir, ".env");
 
 async function main() {
-  console.log("AgentBridge installer / 安装向导");
+  console.log("AgentBridge installer");
   console.log("");
 
   ensureCommand("node");
   ensureCommand("npm");
 
-  run("npm", ["install"], "Installing dependencies / 安装依赖");
+  run("npm", ["install"], "Installing dependencies");
 
   await ensureLocalFiles();
 
@@ -28,7 +28,7 @@ async function main() {
 
     const platformAnswer = await prompt(
       rl,
-      "Platforms (slack,lark) / 平台（slack,lark）",
+      "Platforms (slack,lark)",
       readCurrentValue(envContent, "AGENTBRIDGE_ENABLED_PLATFORMS") || "slack"
     );
     const enabledPlatforms = normalizePlatforms(platformAnswer);
@@ -36,22 +36,34 @@ async function main() {
 
     const defaultAgent = await prompt(
       rl,
-      "Default agent (codex/claude) / 默认 agent（codex/claude）",
+      "Default agent (codex/claude)",
       readCurrentValue(envContent, "AGENTBRIDGE_DEFAULT_AGENT") || "codex"
     );
     envContent = setEnvValue(envContent, "AGENTBRIDGE_DEFAULT_AGENT", defaultAgent || "codex");
 
-    const cwdAnswer = await prompt(
+    const workspaceParents = await prompt(
       rl,
-      "Allowed work dirs, comma-separated / 允许工作目录，逗号分隔",
-      readCurrentValue(envContent, "AGENTBRIDGE_ALLOWED_CWDS") || rootDir
+      "Workspace parent dirs to scan (checks the parent and its direct children), comma-separated",
+      readCurrentValue(envContent, "AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS") || path.dirname(rootDir)
     );
-    envContent = setEnvValue(envContent, "AGENTBRIDGE_ALLOWED_CWDS", cwdAnswer || rootDir);
+    envContent = setEnvValue(
+      envContent,
+      "AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS",
+      workspaceParents || path.dirname(rootDir)
+    );
+
+    const manualWorkspaces = await prompt(
+      rl,
+      "Manual plain workspaces, comma-separated (optional)",
+      readCurrentValue(envContent, "AGENTBRIDGE_MANUAL_WORKSPACES") || ""
+    );
+    envContent = setEnvValue(envContent, "AGENTBRIDGE_MANUAL_WORKSPACES", manualWorkspaces);
+    envContent = setEnvValue(envContent, "AGENTBRIDGE_ALLOWED_CWDS", "");
 
     const useProxy = normalizeYesNo(
       await prompt(
         rl,
-        "Use HTTP(S) proxy? (y/N) / 使用 HTTP(S) 代理？(y/N)",
+        "Use HTTP(S) proxy? (y/N)",
         readCurrentValue(envContent, "AGENTBRIDGE_HTTP_PROXY") ? "y" : "n"
       ),
       false
@@ -59,7 +71,7 @@ async function main() {
     if (useProxy) {
       const proxyUrl = await prompt(
         rl,
-        "Proxy URL / 代理地址",
+        "Proxy URL",
         readCurrentValue(envContent, "AGENTBRIDGE_HTTP_PROXY") || "http://127.0.0.1:10088"
       );
       envContent = setEnvValue(envContent, "AGENTBRIDGE_HTTP_PROXY", proxyUrl);
@@ -72,12 +84,16 @@ async function main() {
     const detectedClaude = chooseFirstAvailable(["claude", "E:/nodejs/claude.cmd"]);
     const claudeCommand = await prompt(
       rl,
-      "Claude command / Claude 命令",
+      "Claude command",
       readCurrentValue(envContent, "AGENTBRIDGE_CLAUDE_COMMAND") || detectedClaude || "claude"
     );
     envContent = setEnvValue(envContent, "AGENTBRIDGE_CLAUDE_COMMAND", claudeCommand);
 
-    envContent = setEnvValue(envContent, "AGENTBRIDGE_CODEX_COMMAND", readCurrentValue(envContent, "AGENTBRIDGE_CODEX_COMMAND") || "node");
+    envContent = setEnvValue(
+      envContent,
+      "AGENTBRIDGE_CODEX_COMMAND",
+      readCurrentValue(envContent, "AGENTBRIDGE_CODEX_COMMAND") || "node"
+    );
 
     if (enabledPlatforms.includes("slack")) {
       envContent = await configureSlack(rl, envContent);
@@ -88,16 +104,13 @@ async function main() {
     }
 
     await fs.writeFile(envPath, envContent, "utf8");
-    console.log(`\nSaved ${path.relative(rootDir, envPath)} / 已保存配置文件`);
+    console.log(`\nSaved ${path.relative(rootDir, envPath)}`);
 
-    run("npm", ["run", "doctor"], "Running doctor / 运行自检");
+    run("npm", ["run", "doctor"], "Running doctor");
 
-    const startNow = normalizeYesNo(
-      await prompt(rl, "Start now? (y/N) / 现在启动？(y/N)", "n"),
-      false
-    );
+    const startNow = normalizeYesNo(await prompt(rl, "Start now? (y/N)", "n"), false);
     if (startNow) {
-      run("npm", ["run", "dev"], "Starting AgentBridge / 启动 AgentBridge");
+      run("npm", ["run", "dev"], "Starting AgentBridge");
     }
   } finally {
     rl.close();
@@ -122,22 +135,22 @@ async function configureSlack(rl, envContent) {
   next = setEnvValue(
     next,
     "SLACK_BOT_TOKEN",
-    await prompt(rl, "Slack bot token / Slack Bot Token", readCurrentValue(next, "SLACK_BOT_TOKEN") || "")
+    await prompt(rl, "Slack bot token", readCurrentValue(next, "SLACK_BOT_TOKEN") || "")
   );
   next = setEnvValue(
     next,
     "SLACK_APP_TOKEN",
-    await prompt(rl, "Slack app token / Slack App Token", readCurrentValue(next, "SLACK_APP_TOKEN") || "")
+    await prompt(rl, "Slack app token", readCurrentValue(next, "SLACK_APP_TOKEN") || "")
   );
   next = setEnvValue(
     next,
     "SLACK_SIGNING_SECRET",
-    await prompt(rl, "Slack signing secret / Slack Signing Secret", readCurrentValue(next, "SLACK_SIGNING_SECRET") || "")
+    await prompt(rl, "Slack signing secret", readCurrentValue(next, "SLACK_SIGNING_SECRET") || "")
   );
   next = setEnvValue(
     next,
     "SLACK_ALLOWED_USER_ID",
-    await prompt(rl, "Slack allowed user id / Slack 允许用户 ID", readCurrentValue(next, "SLACK_ALLOWED_USER_ID") || "")
+    await prompt(rl, "Slack allowed user id", readCurrentValue(next, "SLACK_ALLOWED_USER_ID") || "")
   );
   return next;
 }
@@ -147,24 +160,20 @@ async function configureLark(rl, envContent) {
   next = setEnvValue(
     next,
     "LARK_APP_ID",
-    await prompt(rl, "Lark app id / 飞书 App ID", readCurrentValue(next, "LARK_APP_ID") || "")
+    await prompt(rl, "Lark app id", readCurrentValue(next, "LARK_APP_ID") || "")
   );
   next = setEnvValue(
     next,
     "LARK_APP_SECRET",
-    await prompt(rl, "Lark app secret / 飞书 App Secret", readCurrentValue(next, "LARK_APP_SECRET") || "")
+    await prompt(rl, "Lark app secret", readCurrentValue(next, "LARK_APP_SECRET") || "")
   );
-  next = setEnvValue(
-    next,
-    "LARK_ALLOWED_USER_ID",
-    await prompt(rl, "Lark allowed user id / 飞书允许用户 ID", readCurrentValue(next, "LARK_ALLOWED_USER_ID") || "")
-  );
+  next = setEnvValue(next, "LARK_ALLOWED_USER_ID", "");
   return next;
 }
 
 function ensureCommand(command) {
   if (!commandExists(command)) {
-    throw new Error(`Required command not found / 缺少必需命令: ${command}`);
+    throw new Error(`Required command not found: ${command}`);
   }
 }
 
@@ -200,11 +209,11 @@ async function ensureExists(filePath) {
   try {
     await fs.access(filePath);
   } catch {
-    throw new Error(`Missing required file / 缺少必需文件: ${filePath}`);
+    throw new Error(`Missing required file: ${filePath}`);
   }
 }
 
 main().catch((error) => {
-  console.error(`\nInstall failed / 安装失败: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`\nInstall failed: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
 });

@@ -61,6 +61,8 @@ AGENTBRIDGE_ALLOWED_WORKSPACE_PARENTS=E:/repos,E:/projects
 说明：  
 Notes:
 
+- 只会扫描父目录本身和它的一级子目录，不会继续递归向下扫描  
+  Only the parent directory itself and its direct children are scanned; deeper recursion is skipped.
 - 扫描结果会按同一 Git 仓库去重  
   Scan results are deduplicated by Git repository identity.
 - linked worktree 不会出现在顶层 workspace 选择列表里  
@@ -273,7 +275,6 @@ These are required only when `AGENTBRIDGE_ENABLED_PLATFORMS` includes `lark`.
 
 - `LARK_APP_ID`
 - `LARK_APP_SECRET`
-- `LARK_ALLOWED_USER_ID`
 
 可选项：  
 Optional:
@@ -299,6 +300,8 @@ See the following for Feishu topic mode, shared cards, and long-connection notes
   When Git is unavailable, doctor degrades to plain-workspace mode.
 - managed worktree 只适用于 Git workspace  
   Managed worktrees only apply to Git workspaces.
+- managed worktree 会创建在主仓库同级目录，命名为 `{仓库名}-{worktree名}`，并使用 `worktree/{名字}` 作为分支名  
+  Managed worktrees are created as sibling directories named `{repoName}-{worktreeName}` and use `worktree/{name}` as the branch name.
 
 ## 8. 常见误配 / Common Misconfigurations
 
