@@ -1,9 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { AgentBridgeService } from "../services/agent-bridge-service.js";
-import { RuntimeLocks } from "./locks.js";
+import { LockAcquisitionTimeoutError, RuntimeLocks } from "./locks.js";
 import type { AppConfig } from "../app/config.js";
 import type { Run, Session } from "../domain/models.js";
+import { createDatabase } from "../store/db.js";
+import { SessionStore } from "../store/session-store.js";
+import { RunStore } from "../store/run-store.js";
+import { SessionService } from "../services/session-service.js";
 
 function createConfig(): AppConfig {
   return {
@@ -254,4 +258,37 @@ test("repo metadata operations serialize without blocking unrelated context exec
     "meta-2-start",
     "meta-2-end"
   ]);
+});
+
+test("context locks time out instead of waiting forever", async () => {
+  const locks = new RuntimeLocks();
+  const release = deferred<void>();
+
+  const first = locks.withContextLock("context-1", async () => {
+    await release.promise;
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  await assert.rejects(
+    locks.withContextLock("context-1", async () => {}, 30),
+    (error: unknown) => error instanceof LockAcquisitionTimeoutError
+  );
+
+  release.resolve();
+  await first;
+});
+
+test("execution context lock keys are separated by agent type", () => {
+  const database = createDatabase(":memory:");
+  const service = new SessionService(new SessionStore(database), new RunStore(database));
+
+  assert.equal(
+    service.buildExecutionContextLockKey("claude", null, "E:/AgentBridge"),
+    "cwd:claude:E:/AgentBridge"
+  );
+  assert.equal(
+    service.buildExecutionContextLockKey("codex", null, "E:/AgentBridge"),
+    "cwd:codex:E:/AgentBridge"
+  );
 });
