@@ -3,17 +3,17 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import * as childProcess from "node:child_process";
 import { createDatabase } from "../store/db.js";
 import { ExecutionContextStore } from "../store/execution-context-store.js";
 import { WorkspaceStore } from "../store/workspace-store.js";
 import { SessionStore } from "../store/session-store.js";
 import { RunStore } from "../store/run-store.js";
 import { SessionService } from "./session-service.js";
-import { WorkspaceDiscoveryService } from "./workspace-discovery-service.js";
+import { resolveGitCommonDir, WorkspaceDiscoveryService } from "./workspace-discovery-service.js";
 
 function runGit(args: string[], cwd: string) {
-  execFileSync("git", args, {
+  childProcess.execFileSync("git", args, {
     cwd,
     stdio: "pipe",
     encoding: "utf8"
@@ -248,5 +248,19 @@ test("deduplicates sibling worktrees back to the main repository workspace", () 
   assert.deepEqual(
     result.workspaces.map((workspace) => workspace.rootPath),
     [repoRoot]
+  );
+});
+
+test("resolveGitCommonDir ignores legacy path-format noise and normalizes relative paths", () => {
+  const repoRoot = path.resolve("E:/workspace-root/project-a");
+
+  assert.equal(
+    resolveGitCommonDir(repoRoot, "--path-format=absolute\n.git\n"),
+    path.join(repoRoot, ".git")
+  );
+
+  assert.equal(
+    resolveGitCommonDir(repoRoot, "--path-format=absolute\nC:/repos/project-a/.git\n"),
+    path.resolve("C:/repos/project-a/.git")
   );
 });
