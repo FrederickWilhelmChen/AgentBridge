@@ -31,7 +31,14 @@ export class ProcessManager {
     }
   ) {}
 
-  public async run(runId: string, profile: LaunchProfile, timeoutMs: number): Promise<RunResult> {
+  public async run(
+    runId: string,
+    profile: LaunchProfile,
+    timeoutMs: number,
+    options?: {
+      onSpawn?: (pid: number | null) => void;
+    }
+  ): Promise<RunResult> {
     const codexSnapshot = profile.outputMode === "codex_text"
       ? await captureCodexState()
       : null;
@@ -62,6 +69,7 @@ export class ProcessManager {
     };
 
     this.activeProcesses.set(runId, activeProcess);
+    options?.onSpawn?.(child.pid ?? null);
 
     child.stdout.on("data", (chunk) => {
       output += chunk.toString();

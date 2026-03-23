@@ -83,3 +83,38 @@ test("does not reuse a persistent session across different Slack threads for the
     secondThreadSession.sessionId
   );
 });
+
+test("recoverStaleRuntimeState resets stale active runs and sessions on startup", () => {
+  const database = createDatabase(":memory:");
+  const service = new SessionService(new SessionStore(database), new RunStore(database));
+  const session = service.createPersistentSession("codex", "E:/AgentBridge", "slack", "U1", "D123", "171");
+  const run = service.createRun({
+    sessionId: session.sessionId,
+    agentType: "codex",
+    platform: "slack",
+    platformChannelId: "D123",
+    platformThreadId: "171",
+    platformUserId: "U1",
+    inputText: "hello"
+  });
+
+  service.updateRun({
+    ...run,
+    status: "running"
+  });
+  service.updateSession({
+    ...session,
+    status: "running",
+    lastRunId: run.runId
+  });
+
+  const recovered = service.recoverStaleRuntimeState();
+  const updatedRun = service.getRunById(run.runId);
+  const updatedSession = service.getSessionById(session.sessionId);
+
+  assert.equal(recovered.recoveredRuns, 1);
+  assert.equal(recovered.recoveredSessions, 1);
+  assert.equal(updatedRun?.status, "failed");
+  assert.match(updatedRun?.errorReason ?? "", /Recovered stale active run/);
+  assert.equal(updatedSession?.status, "idle");
+});
