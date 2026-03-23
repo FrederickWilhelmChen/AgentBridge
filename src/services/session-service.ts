@@ -172,6 +172,41 @@ export class SessionService {
     return this.runStore.findLatestBySessionId(sessionId);
   }
 
+  public recoverStaleRuntimeState(): { recoveredRuns: number; recoveredSessions: number } {
+    const now = new Date().toISOString();
+    const staleRuns = this.runStore.listActive();
+
+    for (const run of staleRuns) {
+      this.runStore.update({
+        ...run,
+        status: "failed",
+        endedAt: now,
+        exitCode: null,
+        errorReason: run.errorReason ?? "Recovered stale active run during startup."
+      });
+    }
+
+    let recoveredSessions = 0;
+    for (const session of this.sessionStore.list()) {
+      if (session.status !== "running") {
+        continue;
+      }
+
+      const latestRun = session.lastRunId ? this.runStore.findById(session.lastRunId) : null;
+      this.sessionStore.update({
+        ...session,
+        status: "idle",
+        lastActiveAt: now
+      });
+      recoveredSessions += 1;
+    }
+
+    return {
+      recoveredRuns: staleRuns.length,
+      recoveredSessions
+    };
+  }
+
   public listWorkspaces(): Workspace[] {
     if (!this.workspaceStore) {
       return [];
@@ -359,7 +394,11 @@ export class SessionService {
     return `scope:${params.platform}:${params.platformUserId}:${params.agentType}`;
   }
 
-  public buildExecutionContextLockKey(contextId: string | null | undefined, cwd: string): string {
-    return contextId ? `context:${contextId}` : `cwd:${cwd}`;
+  public buildExecutionContextLockKey(
+    agentType: AgentType,
+    contextId: string | null | undefined,
+    cwd: string
+  ): string {
+    return contextId ? `context:${agentType}:${contextId}` : `cwd:${agentType}:${cwd}`;
   }
 }

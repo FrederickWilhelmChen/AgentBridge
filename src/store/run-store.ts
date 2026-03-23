@@ -101,4 +101,12 @@ export class RunStore {
 
     return row ? mapRun(row) : null;
   }
+
+  public listActive(): Run[] {
+    const rows = this.database
+      .prepare("SELECT * FROM runs WHERE status IN ('starting', 'running') ORDER BY started_at DESC")
+      .all() as RunRow[];
+
+    return rows.map(mapRun);
+  }
 }

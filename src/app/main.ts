@@ -35,6 +35,7 @@ async function main() {
     workspaceStore,
     executionContextStore
   );
+  const recoveredRuntimeState = sessionService.recoverStaleRuntimeState();
   const workspaceDiscoveryService = new WorkspaceDiscoveryService(sessionService);
   const gitContextService = new GitContextService(sessionService, executionContextStore);
   const processManager = new ProcessManager(logger, {
@@ -78,6 +79,8 @@ async function main() {
       workspaceParents: config.runtime.workspace?.allowedWorkspaceParents ?? [],
       manualWorkspaces: config.runtime.workspace?.manualWorkspaces ?? [],
       discoveredWorkspaceCount: discoveryResult.workspaces.length,
+      recoveredRunCount: recoveredRuntimeState.recoveredRuns,
+      recoveredSessionCount: recoveredRuntimeState.recoveredSessions,
       defaultAgent: config.runtime.defaultAgent,
       httpProxy: config.runtime.httpProxy,
       httpsProxy: config.runtime.httpsProxy

@@ -4,7 +4,7 @@ import type { Run, Session } from "../domain/models.js";
 import { parseIntent } from "../intent/intent-router.js";
 import type { IncomingPlatformMessage, MessageHandlingResult, SelectableWorkspace } from "../platform/types.js";
 import { buildResumeProfile, buildRunOnceProfile } from "../runtime/agents.js";
-import { RuntimeLocks } from "../runtime/locks.js";
+import { LockAcquisitionTimeoutError, RuntimeLocks } from "../runtime/locks.js";
 import { ProcessManager } from "../runtime/process-manager.js";
 import { GitContextService } from "./git-context-service.js";
 import { SessionService } from "./session-service.js";
@@ -17,6 +17,8 @@ export type RunExecutionResult = {
 
 export class AgentBridgeService {
   private readonly locks = new RuntimeLocks();
+  private static readonly EXECUTION_CONTEXT_LOCK_TIMEOUT_MS = 5_000;
+  private static readonly MAX_CONTEXT_LOCK_HOLD_MS = 15 * 60 * 1_000;
 
   public constructor(
     private readonly config: AppConfig,
@@ -36,7 +38,7 @@ export class AgentBridgeService {
   }): Promise<RunExecutionResult> {
     const resolved = this.resolveExecutionTarget(params.cwd);
     const executionCwd = resolved?.context.path ?? this.ensureAllowedCwd(params.cwd);
-    const contextLockKey = this.buildExecutionContextLockKey(resolved?.context.contextId, executionCwd);
+    const contextLockKey = this.buildExecutionContextLockKey(params.agentType, resolved?.context.contextId, executionCwd);
 
     return await this.locks.withContextLock(contextLockKey, async () => {
       let run = this.sessionService.createRun({
@@ -58,7 +60,16 @@ export class AgentBridgeService {
         const result = await this.processManager.run(
           run.runId,
           buildRunOnceProfile(this.config, params.agentType, executionCwd, params.message),
-          this.config.runtime.defaultTimeoutMs
+          this.getExecutionTimeoutMs(),
+          {
+            onSpawn: (pid) => {
+              run = this.sessionService.updateRun({
+                ...run,
+                status: "running",
+                pid
+              });
+            }
+          }
         );
 
         run = this.sessionService.updateRun({
@@ -87,7 +98,7 @@ export class AgentBridgeService {
         });
         throw error;
       }
-    });
+    }, AgentBridgeService.EXECUTION_CONTEXT_LOCK_TIMEOUT_MS);
   }
 
   public createOrResetPersistentSession(
@@ -192,6 +203,7 @@ export class AgentBridgeService {
       const currentContext = this.resolveSessionExecutionContext(activeSession);
       const executionCwd = currentContext?.path ?? resolved?.context.path ?? this.ensureAllowedCwd(params.cwd);
       const contextLockKey = this.buildExecutionContextLockKey(
+        params.agentType,
         currentContext?.contextId ?? resolved?.context.contextId,
         executionCwd
       );
@@ -236,7 +248,16 @@ export class AgentBridgeService {
           const result = await this.processManager.run(
             run.runId,
             profile,
-            this.config.runtime.defaultTimeoutMs
+            this.getExecutionTimeoutMs(),
+            {
+              onSpawn: (pid) => {
+                run = this.sessionService.updateRun({
+                  ...run,
+                  status: "running",
+                  pid
+                });
+              }
+            }
           );
 
           run = this.sessionService.updateRun({
@@ -281,7 +302,7 @@ export class AgentBridgeService {
 
           throw error;
         }
-      });
+      }, AgentBridgeService.EXECUTION_CONTEXT_LOCK_TIMEOUT_MS);
     });
   }
 
@@ -676,17 +697,26 @@ export class AgentBridgeService {
     return `scope:${params.platform}:${params.platformUserId}:${params.agentType}`;
   }
 
-  private buildExecutionContextLockKey(contextId: string | null | undefined, cwd: string): string {
+  private buildExecutionContextLockKey(
+    agentType: AgentType,
+    contextId: string | null | undefined,
+    cwd: string
+  ): string {
     const resolver = (this.sessionService as SessionService & {
       buildExecutionContextLockKey?: (
+        agentType: AgentType,
         contextId: string | null | undefined,
         cwd: string
       ) => ReturnType<SessionService["buildExecutionContextLockKey"]>;
     }).buildExecutionContextLockKey;
 
     return typeof resolver === "function"
-      ? resolver.call(this.sessionService, contextId, cwd)
-      : (contextId ? `context:${contextId}` : `cwd:${cwd}`);
+      ? resolver.call(this.sessionService, agentType, contextId, cwd)
+      : (contextId ? `context:${agentType}:${contextId}` : `cwd:${agentType}:${cwd}`);
+  }
+
+  private getExecutionTimeoutMs(): number {
+    return Math.min(this.config.runtime.defaultTimeoutMs, AgentBridgeService.MAX_CONTEXT_LOCK_HOLD_MS);
   }
 
   private ensurePersistentSessionSupport(agentType: AgentType) {
@@ -725,6 +755,10 @@ function buildPromptWithAttachments(message: IncomingPlatformMessage): string {
 }
 
 function formatErrorReason(error: unknown): string {
+  if (error instanceof LockAcquisitionTimeoutError) {
+    return "Execution context is busy with another run. Wait for it to finish or interrupt the active run.";
+  }
+
   if (error instanceof Error) {
     return error.message;
   }
