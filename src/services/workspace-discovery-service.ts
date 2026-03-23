@@ -170,20 +170,24 @@ function walkDirectories(rootPath: string, maxDepth: number): string[] {
 }
 
 function detectGitWorkspace(directory: string): GitWorkspaceCandidate | null {
-  const gitEntryPath = path.join(directory, ".git");
+  const normalizedDirectory = path.resolve(directory);
+  const gitEntryPath = path.join(normalizedDirectory, ".git");
   if (!fs.existsSync(gitEntryPath)) {
     return null;
   }
 
   try {
-    const commonDir = execFileSync(
-      "git",
-      ["-C", directory, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-      {
-        encoding: "utf8",
-        stdio: "pipe"
-      }
-    ).trim();
+    const commonDir = resolveGitCommonDir(
+      normalizedDirectory,
+      execFileSync(
+        "git",
+        ["-C", normalizedDirectory, "rev-parse", "--git-common-dir"],
+        {
+          encoding: "utf8",
+          stdio: "pipe"
+        }
+      )
+    );
 
     if (!commonDir) {
       return null;
@@ -196,6 +200,20 @@ function detectGitWorkspace(directory: string): GitWorkspaceCandidate | null {
   } catch {
     return null;
   }
+}
+
+export function resolveGitCommonDir(directory: string, rawOutput: string): string | null {
+  const lastLine = rawOutput
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .at(-1);
+
+  if (!lastLine) {
+    return null;
+  }
+
+  return path.resolve(directory, lastLine);
 }
 
 function deriveRepoRootFromCommonDir(commonDir: string): string {
