@@ -57,3 +57,16 @@ test("buildResumeProfile wraps bridge prompts with a complete-response instructi
   assert.match(profile.input, /do not reply with placeholders/i);
   assert.match(profile.input, /continue/);
 });
+
+test("buildRunOnceProfile does not require a shell for node-hosted codex entrypoints", () => {
+  const profile = buildRunOnceProfile(
+    createConfig(),
+    "codex",
+    "E:/AgentBridge",
+    "continue"
+  );
+
+  assert.equal(profile.command, "node");
+  assert.equal(profile.args[0], "codex.js");
+  assert.equal(profile.shell, false);
+});

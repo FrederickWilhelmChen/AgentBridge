@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseClaudeOutputForTest, parseCodexOutputForTest } from "./process-manager.js";
+import {
+  buildProcessTreeKillPlanForTest,
+  parseClaudeOutputForTest,
+  parseCodexOutputForTest
+} from "./process-manager.js";
 
 test("extracts the final assistant-style answer from noisy codex output", () => {
   const output = `
@@ -86,4 +90,16 @@ tokens used
   const parsed = parseCodexOutputForTest(output);
 
   assert.equal(parsed.text, "The repository looks clean.");
+});
+
+test("uses taskkill tree termination on Windows when a pid is available", () => {
+  assert.deepEqual(buildProcessTreeKillPlanForTest("win32", 1234), {
+    command: "taskkill",
+    args: ["/PID", "1234", "/T", "/F"]
+  });
+});
+
+test("does not build a taskkill plan when the pid is missing", () => {
+  assert.equal(buildProcessTreeKillPlanForTest("win32", null), null);
+  assert.equal(buildProcessTreeKillPlanForTest("linux", 1234), null);
 });
