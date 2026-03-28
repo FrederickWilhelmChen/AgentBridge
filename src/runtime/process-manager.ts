@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Logger } from "pino";
 import type { LaunchProfile } from "./agents.js";
 import { captureCodexState, discoverCodexSessionId } from "./codex-state.js";
@@ -61,7 +61,7 @@ export class ProcessManager {
       timeout: setTimeout(() => {
         this.logger.warn({ runId, pid: child.pid }, "Run timed out");
         activeProcess.timedOut = true;
-        child.kill();
+        this.terminateActiveProcess(runId, activeProcess);
       }, timeoutMs),
       interrupted: false,
       timedOut: false,
@@ -122,7 +122,7 @@ export class ProcessManager {
     }
 
     active.interrupted = true;
-    active.process.kill();
+    this.terminateActiveProcess(runId, active);
     return true;
   }
 
@@ -131,11 +131,55 @@ export class ProcessManager {
       this.logger.info({ runId, pid: active.process.pid }, "Stopping active process during shutdown");
       active.interrupted = true;
       clearTimeout(active.timeout);
-      active.process.kill();
+      this.terminateActiveProcess(runId, active);
     }
 
     this.activeProcesses.clear();
   }
+
+  private terminateActiveProcess(runId: string, active: ActiveProcess): void {
+    const killPlan = buildProcessTreeKillPlan(process.platform, active.process.pid ?? null);
+    if (killPlan) {
+      try {
+        execFileSync(killPlan.command, killPlan.args, {
+          stdio: "ignore"
+        });
+        return;
+      } catch (error) {
+        this.logger.warn(
+          {
+            runId,
+            pid: active.process.pid,
+            error
+          },
+          "Failed to terminate process tree cleanly; falling back to direct child kill"
+        );
+      }
+    }
+
+    active.process.kill();
+  }
+}
+
+function buildProcessTreeKillPlan(
+  platform: NodeJS.Platform,
+  pid: number | null
+): { command: string; args: string[] } | null {
+  if (platform !== "win32" || pid === null) {
+    return null;
+  }
+
+  return {
+    command: "taskkill",
+    args: ["/PID", String(pid), "/T", "/F"]
+  };
+}
+
+export function buildProcessTreeKillPlanForTest(
+  platform: NodeJS.Platform,
+  pid: number | null
+): { command: string; args: string[] } | null {
+  return buildProcessTreeKillPlan(platform, pid);
 }
 
 async function finalizeRunResult(args: {

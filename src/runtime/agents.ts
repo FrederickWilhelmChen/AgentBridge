@@ -37,7 +37,7 @@ export function buildRunOnceProfile(
     cwd,
     input: wrapBridgePrompt(message),
     outputMode: agent.outputMode,
-    shell: shouldUseShell(agent.command)
+    shell: shouldUseShell(agent.command, agent.args)
   };
 }
 
@@ -60,11 +60,24 @@ export function buildResumeProfile(
     cwd,
     input: wrapBridgePrompt(message),
     outputMode: agent.outputMode,
-    shell: shouldUseShell(agent.command)
+    shell: shouldUseShell(agent.command, hydrateResumeArgs(agent.resumeArgs, providerSessionId))
   };
 }
 
-function shouldUseShell(command: string): boolean {
-  if (process.platform === "win32") return true;
-  return /\.(cmd|bat|ps1)$/i.test(command);
+function shouldUseShell(command: string, args: string[]): boolean {
+  if (/\.(cmd|bat|ps1)$/i.test(command)) {
+    return true;
+  }
+
+  const normalizedCommand = command.replace(/\\/g, "/").toLowerCase();
+  const firstArg = args[0]?.replace(/\\/g, "/").toLowerCase() ?? "";
+  if ((normalizedCommand === "node" || normalizedCommand.endsWith("/node.exe")) && /\.(cjs|mjs|js)$/i.test(firstArg)) {
+    return false;
+  }
+
+  if (process.platform === "win32") {
+    return true;
+  }
+
+  return false;
 }
